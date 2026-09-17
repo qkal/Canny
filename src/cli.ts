@@ -45,6 +45,9 @@ switch (cmd) {
   case "replay":
     replay();
     break;
+  case "remove":
+    remove();
+    break;
   default:
     console.log(
       [
@@ -55,6 +58,7 @@ switch (cmd) {
         "  canny status [session-file]                  what the ledger knows about the latest session",
         "  canny sessions                               list recorded sessions",
         "  canny replay [session-file]                  re-derive every Stop verdict from the ledger",
+        "  canny remove [--global]                      take Canny's hook entries out again",
         "",
         `Sessions and the Jev cache live in ${home()}. Set TYPESAFE_API_KEY to enable Jev.`,
       ].join("\n"),
@@ -93,13 +97,9 @@ function init(): void {
   const portable = onPath("canny");
   const cli = fileURLToPath(import.meta.url);
   const command = (agent: Agent): string =>
-    portable
-      ? `canny hook --agent ${agent}`
-      : `"${process.execPath}" "${cli}" hook --agent ${agent}`;
+    portable ? `canny hook --agent ${agent}` : `node "${cli}" hook --agent ${agent}`;
   if (!portable)
-    console.log(
-      "canny is not on PATH, so the hooks point at this exact node binary and file. They break when either moves; install canny globally and run init again to use PATH instead.",
-    );
+    console.log(`Hooks call node with the path of this checkout, ${cli}. Keep it there.`);
   const handler = (agent: Agent, timeout: number, matcher?: string) => ({
     ...(matcher && { matcher }),
     hooks: [{ type: "command", command: command(agent), timeout, statusMessage: "Canny" }],
@@ -139,7 +139,7 @@ function onPath(name: string): boolean {
   );
 }
 
-/** Replace any earlier Canny entries, keep everything else in the file as it was. */
+/** Drop every earlier Canny entry, add ours, keep everything else as it was. */
 function merge(file: string, ours: Record<string, unknown[]>): void {
   type Group = { hooks?: { command?: string }[] };
   let existing: { hooks?: Record<string, Group[]> } = {};
@@ -147,18 +147,36 @@ function merge(file: string, ours: Record<string, unknown[]>): void {
     try {
       existing = JSON.parse(readFileSync(file, "utf8")) as typeof existing;
     } catch (e) {
-      console.error(`${file} is not valid JSON; fix it and run init again. ${String(e)}`);
+      console.error(`${file} is not valid JSON; fix it and run again. ${String(e)}`);
       return;
     }
   }
   const hooks = (existing.hooks ??= {});
   const isCanny = (g: Group): boolean =>
     (g.hooks ?? []).some((h) => /\bcanny\b.*\bhook\b/.test(h.command ?? ""));
+  let removed = 0;
+  for (const [event, groups] of Object.entries(hooks)) {
+    const kept = groups.filter((g) => !isCanny(g));
+    removed += groups.length - kept.length;
+    if (kept.length) hooks[event] = kept;
+    else delete hooks[event];
+  }
   for (const [event, groups] of Object.entries(ours))
-    hooks[event] = [...(hooks[event] ?? []).filter((g) => !isCanny(g)), ...(groups as Group[])];
+    hooks[event] = [...(hooks[event] ?? []), ...(groups as Group[])];
+  const adding = Object.keys(ours).length > 0;
+  if (!adding && !removed) {
+    console.log(`no Canny hooks in ${file}`);
+    return;
+  }
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(existing, null, 2) + "\n");
-  console.log(`wrote ${file}`);
+  console.log(`${adding ? "wrote" : "removed Canny hooks from"} ${file}`);
+}
+
+function remove(): void {
+  const root = opts.global ? homedir() : process.cwd();
+  for (const file of [join(root, ".claude", "settings.json"), join(root, ".codex", "hooks.json")])
+    if (existsSync(file)) merge(file, {});
 }
 
 function pick(): { file: string; entries: Entry[] } | null {

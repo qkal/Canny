@@ -1,87 +1,172 @@
 # Canny
 
-A warden for AI coding agents. Canny plugs into Claude Code and Codex CLI through their hook systems and checks the agent's work while the session runs.
+A warden for AI coding agents. It hooks into Claude Code and Codex CLI, keeps a ledger of what the agent actually did, and will not let it finish on a claim.
 
-Coding agents fail quietly: they say "done" when no test ran, ignore rules in `CLAUDE.md` or `AGENTS.md`, retry the same failing command, and write secrets into files. Canny turns those into facts the agent cannot talk its way past.
+[![ci](https://github.com/qkal/canny/actions/workflows/ci.yml/badge.svg)](https://github.com/qkal/canny/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/qkal/canny)](LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A5%2022-339933?logo=node.js&logoColor=white)](#install-by-pasting-a-prompt)
+[![agents](https://img.shields.io/badge/hooks%20into-Claude%20Code%20%C2%B7%20Codex%20CLI-7c3aed)](#claude-code-and-codex-differ-in-four-places)
+[![runtime dependencies](https://img.shields.io/badge/runtime%20dependencies-0-success)](package.json)
+[![judge](https://img.shields.io/badge/judge-Jev%20by%20TypeSafe%2C%20optional-0ea5e9)](https://typesafe.ai)
+[![last commit](https://img.shields.io/github/last-commit/qkal/canny)](https://github.com/qkal/canny/commits/main)
 
-The rule: **facts go to code, judgments go to Jev, and only facts can block.**
+> Done. Skipped tests — one-liner, no branch to break.
 
-## What it does
+That is Claude Code, verbatim, during this project's first live run. It had been asked to add a function, it wrote the file with a shell heredoc, ran nothing, and finished. No error. No warning. Nothing in `CLAUDE.md` could have stopped it, because a rules file only asks the model to remember, and nothing checks that it did.
 
-| Check | When | Source | Outcome |
+Canny is the hook that noticed. On the next run of the same prompt, the agent's "done" was refused with this message:
+
+> Canny: math.js changed, but no check has passed since the last edit. The last command was `cat > math.js <<'EOF' …` (exit 0). Run the project's checks and fix what fails before finishing. A test, build, lint, or type-check command counts. If no check applies to this change, say so explicitly and stop again.
+
+Claude ran `npm test`. It passed. The next "done" went through. The whole exchange is in the [session ledger](#what-a-guarded-session-looks-like) below.
+
+## The one rule
+
+**Facts go to code. Judgments go to Jev. Only facts can block.**
+
+A fact is something the ledger can prove: a file changed, a command ran, it exited 1, the same command failed with the same output three times, the text about to be written contains an AWS key. Code decides those, offline, with no API key.
+
+A judgment is something code cannot decide: does this message claim the work is done, does this diff break the rule "never hardcode model IDs". Those go to [Jev](https://typesafe.ai), TypeSafe's decision model, which answers typed yes/no questions with a calibrated probability in about a quarter of a second.
+
+Jev never blocks. A "done" claim is refused because the ledger holds no passing check, not because a probability crossed a line. A rule violation becomes a note in the agent's context, not a wall. When Jev is unsure, or there is no key, the deterministic rule stands alone.
+
+The same session always produces the same verdict, and `canny replay` proves it from the ledger.
+
+## Install by pasting a prompt
+
+Canny is not on npm. Your agent installs it from this repository: a clone and one command. The compiled CLI is committed, so there is nothing to build. You need git and Node 22 or newer.
+
+Paste this into Claude Code or Codex, inside the project you want guarded:
+
+```text
+Install Canny (https://github.com/qkal/canny), a warden that checks your work through this agent's hooks, and hook it into this project.
+
+1. Confirm `node --version` is 22 or newer. If not, stop and tell me.
+2. If ~/.canny/src exists, run `git -C ~/.canny/src pull --ff-only`. Otherwise run `git clone https://github.com/qkal/canny.git ~/.canny/src`. There is nothing to build or install.
+3. From the root of this project, run `node ~/.canny/src/dist/cli.js init` and show me the hook entries it wrote.
+4. Run `echo canny-check`, then `node ~/.canny/src/dist/cli.js status`. If status lists a session with at least one event, the hooks are live. If it says no sessions were recorded: on Claude Code ask me to restart you; on Codex remind me to run /hooks to trust the new hooks.
+5. Change nothing else. Tell me what you did in five lines or fewer.
+```
+
+`init` writes hook entries for the agents it finds installed, so the same prompt works in either agent. To choose explicitly, change step 3 to `init --claude` or `init --codex`. To guard every project instead of this one, use `init --global`, which writes to `~/.claude/settings.json` and `~/.codex/hooks.json`.
+
+To update later:
+
+```text
+Update Canny: run `git -C ~/.canny/src pull --ff-only` and tell me what changed, from its CHANGELOG.md, since the previous commit.
+```
+
+To remove it from a project:
+
+```text
+Remove Canny from this project: from the project root run `node ~/.canny/src/dist/cli.js remove` and show me what it took out. Leave ~/.canny alone.
+```
+
+By hand, the same thing is two commands, and a third if you want a `canny` on your PATH:
+
+```bash
+git clone https://github.com/qkal/canny.git ~/.canny/src
+node ~/.canny/src/dist/cli.js init
+ln -s ~/.canny/src/dist/cli.js ~/.local/bin/canny
+```
+
+With `canny` on your PATH, `init` writes `canny hook` into the hook config instead of the absolute path.
+
+## What a guarded session looks like
+
+Every hook event lands in an append-only ledger, one file per session under `~/.canny/sessions/`. This is the live run from the top of the page, as `canny status` and the ledger show it. Only paths and outcomes are stored, never file contents.
+
+```text
+event  what happened                                   exit     verdict
+Bash   ls -a && cat package.json                       0
+Bash   cat math.test.js                                0
+Bash   cat > math.js <<'EOF' … EOF                     0        edit recorded: math.js
+Stop   "…Done."                                        —        block: math.js changed, no check has passed
+Bash   node --test 2>&1 | tail -20                     0        not on the list of checks that day
+Stop   "…Done."                                        —        block: still no passing check
+Bash   npm test                                        0        a check
+Stop   "npm test passes: 1 test, 0 failures … Done."   —        allow
+```
+
+`node --test` was not yet on the list of commands that count, so Claude was blocked a second time and reached for `npm test`. The list is [configurable](#configuration), and that one is on it now.
+
+Run `canny replay` on any session and it re-derives every Stop verdict from the recorded facts and the recorded Jev answers, then reports any mismatch. There are none.
+
+## Three hooks carry everything
+
+```mermaid
+flowchart LR
+  A[PreToolUse] --> B[Pattern checks]
+  B -->|deny / ask| X((tool call))
+  C[PostToolUse] --> D[Evidence ledger]
+  C --> E[Jev: does this edit break rule X?]
+  E -->|note| Y((agent context))
+  F[Stop] --> G[Ledger: check passed since last edit?]
+  G -->|no| H[Jev: does the message claim done?]
+  H -->|not a claim| I[allow]
+  H -->|claim or unsure| J[block]
+  G -->|yes| I
+```
+
+Claude Code also gets `PostToolUseFailure`, because that is where it reports a command's non-zero exit. Only the pattern checks and the ledger gate can block. Everything Jev says becomes a note.
+
+## What blocks and what only nags
+
+| Check | When | Decided by | Outcome |
 | --- | --- | --- | --- |
-| Done-gate: no code edit may be finished without a passing check since the last edit | Stop | evidence ledger | block |
-| Secret shapes (AWS, GitHub, Slack, Stripe, OpenAI, Anthropic, Google keys, private keys, hardcoded credentials) in content about to be written | PreToolUse | pattern | deny |
-| Test cases removed, `.skip`/`.only`/`xfail` markers added, or a test file deleted | PreToolUse | pattern | ask (Claude Code), deny (Codex) |
-| The same command failing with the same output | PostToolUse, PreToolUse | ledger | note on the 2nd, deny on the 4th |
+| A code file changed and no test, build, lint, or type-check command has passed since | Stop | ledger | block |
+| Content about to be written contains a secret shape: AWS, GitHub, Slack, Stripe, Google, OpenAI or Anthropic keys, private key blocks, or `password = "…"` with real-looking entropy | PreToolUse | pattern | deny |
+| An edit removes test cases, adds `.skip`, `.only`, `xit`, `@pytest.mark.skip`, `t.Skip`, `#[ignore]`, `@Disabled`, `XCTSkip` and friends, or deletes a test file | PreToolUse | pattern | ask on Claude Code, deny on Codex |
+| The same command fails with the same output again | PostToolUse | ledger | note on the second, deny on the fourth attempt |
+| "Does this edit break a rule in `CLAUDE.md` or `AGENTS.md`?" | PostToolUse | Jev | note |
 | "Does this message claim the work is done?" | Stop | Jev | can only relax the done-gate |
-| "Does this edit break project rule X?" | PostToolUse | Jev | note to the agent |
 
-The evidence ledger is an append-only log per session under `~/.canny/sessions/`. It records which files changed, which test, build, or lint commands ran after the last edit, and their exit codes. It works offline with no API key.
+"Ask" means the user gets a permission prompt with Canny's reason. Codex has no such decision, so it gets a deny with the same reason; the reason says how to allow it in `.canny.json` if the removal was intended.
 
-Files written from the shell count too. Agents often write with `cat > file <<'EOF'`, `tee`, or `sed -i` when told to prefer the shell, and no Write or Edit hook fires for that. Canny reads redirection and in-place edit targets out of every Bash command, and uses Claude Code's `bashEditDiff` list when it is present.
+## The done-gate, exactly
 
-## Install
+At every Stop, in this order:
 
-```bash
-pnpm add -g canny-warden
-```
+1. No code file was edited this session: allow. Docs, images, and lockfiles do not count as code.
+2. A check exited 0 after the last code edit: allow.
+3. This is already a re-run after a block and nothing new has happened since: allow, and warn the user that the agent finished without a passing check. Set `"strict": true` to skip this step and keep blocking; Claude Code caps consecutive blocks at eight.
+4. Jev is available and at least 90 percent sure the message is *not* a "done" claim (the agent is asking a question, or reporting being stuck): allow.
+5. Otherwise: block, with a reason that names the files, the last command and its exit code, and what counts as a check.
 
-Node 22 or newer. Install globally so `canny` is on your PATH.
-
-Then, inside a project:
-
-```bash
-canny init
-```
-
-This writes hook entries into `.claude/settings.json` for Claude Code and `.codex/hooks.json` for Codex, keeping whatever is already there. Without flags it picks the agents it finds installed (a `~/.claude` or `~/.codex` directory), and both when it finds neither. The entries call `canny hook`, so they keep working across upgrades of Canny and Node. If `canny` is not on your PATH at init time, absolute paths to the current Node binary and install are written instead, and init says so. Use `--global` to install into `~/.claude` and `~/.codex` instead, and `--claude` or `--codex` to choose explicitly. Codex asks you to trust new hooks once: run `/hooks` inside Codex.
-
-Set `TYPESAFE_API_KEY` to enable Jev. Without it, Canny runs the deterministic checks alone.
-
-## How the done-gate decides
-
-At every Stop, Canny reads the ledger:
-
-1. No code files edited this session: allow. Docs, images, and lockfiles do not count.
-2. A test, build, lint, or type-check command exited 0 after the last edit: allow.
-3. Otherwise, if Jev is available and is at least 90 percent sure the message is *not* a "done" claim (the agent is asking a question or reporting being blocked): allow.
-4. Otherwise: block, with a reason that names the files, the last command and its exit code, and what counts as a check.
-
-The agent gets one block. If it stops again with no new edit or command, Canny lets it through and warns you. Set `"strict": true` to keep blocking until a check passes (Claude Code caps this at 8 in a row).
+Step 4 is the only place Jev touches the gate, and it can only make it more permissive. Files an agent writes from the shell count as edits too: `cat > file <<'EOF'`, `tee`, `sed -i`, and `>` redirections are read out of every command, and Claude Code's own change list is used when it sends one.
 
 ## Jev
 
-Jev is TypeSafe's decision model. Canny asks it typed yes/no questions and gets a probability back in about 250 ms. Jev never blocks: a "done" claim is blocked because the ledger has no passing check, not because a probability crossed a line.
+[Jev](https://typesafe.ai) is the first of TypeSafe's [System One](https://docs.typesafe.ai/concepts/system-one) models: it does not generate text, it answers a typed question about a piece of state with a probability. Canny only uses the [Noul](https://docs.typesafe.ai/primitives/noul) primitive, a yes/no question, and follows TypeSafe's own guidance that [code keeps the workflow and the model gets narrow, atomic questions](https://docs.typesafe.ai/concepts/how-to-build-with-system-one). The two questions Canny asks are in [`src/hook.ts`](src/hook.ts), criteria and all.
 
-To keep verdicts stable across Jev's run-to-run drift of about 0.05:
+Jev's probabilities are [calibrated](https://docs.typesafe.ai/introduction/machine-learning-primer) but drift by about 0.05 between runs. Three things keep Canny's verdicts stable anyway:
 
-- Every answer is cached by content hash under `~/.canny/jev/`, so the same edit or message always gets the same answer.
-- Canny acts only above 0.9 (a rule is broken) or below 0.1 (not a done claim). Everything in between falls back to the deterministic default.
-- Every request is logged to the session ledger. `canny replay` re-derives every Stop verdict from the recorded facts and answers and reports any mismatch.
+- **Cache by content.** Every request is hashed and its answer stored under `~/.canny/jev/`. The same edit or message gets the same answer, forever, without a second request.
+- **Act only when sure.** A rule is reported broken above 0.9. A message is treated as "not a done claim" below 0.1. Everything in between falls back to the deterministic default. The band is wider than the drift.
+- **Log everything.** Each call, its hash, its latency, and its answers go into the session ledger, which is why `canny replay` needs no network.
 
-The judge is one function (`makeJudge` in `src/jev.ts`) that posts to `CANNY_JEV_URL`. Point it at anything that speaks the same request shape to swap in a local model.
+Jev is hosted by TypeSafe behind an API key, and every judgment sends the clipped diff or the agent's last message to their API. If you would rather not, leave the key unset: the ledger, the done-gate, and the pattern checks work exactly the same, and only the two judgment questions go unanswered. The judge is one function, `makeJudge` in [`src/jev.ts`](src/jev.ts), that posts to `CANNY_JEV_URL`. Point it at anything that speaks the same [request shape](https://docs.typesafe.ai/api) to swap in a local model.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `TYPESAFE_API_KEY` | unset | Enables Jev |
 | `CANNY_JEV_URL` | `https://api.typesafe.ai/v1/systemone` | Endpoint |
-| `CANNY_JEV_MODEL` | `jev-latest` | Model |
-| `CANNY_JEV_TIMEOUT_MS` | `3000` | Per-request timeout; a timeout is treated as no answer |
-| `CANNY_HOME` | `~/.canny` | Sessions, cache, error log |
+| `CANNY_JEV_MODEL` | `jev-latest` | Model alias; see [models](https://docs.typesafe.ai/models) |
+| `CANNY_JEV_TIMEOUT_MS` | `3000` | Per request; a timeout counts as no answer |
+| `CANNY_HOME` | `~/.canny` | Sessions, cache, error log, and the source checkout |
 
-## What Canny stores and sends
+## What stays on disk, what leaves the machine
 
-- The session ledger under `~/.canny/sessions/` keeps the command line of every shell command the agent ran, its exit code, the last line of its output, and the paths of edited files. It never keeps file contents, but a secret passed on a command line ends up in the ledger.
-- With `TYPESAFE_API_KEY` set, each edit's added and removed text (clipped to 4,000 characters), the extracted project rules, and the agent's final message are sent to TypeSafe's API. Every request and its answer are cached under `~/.canny/jev/`, so that content also sits on disk.
+- The session ledger keeps the command line of every shell command the agent ran, its exit code, the last line of its output, and the paths of edited files. Never file contents. A secret passed on a command line does end up in the ledger.
+- With a key set, each edit's added and removed text (clipped to 4,000 characters), the extracted project rules, and the agent's final message go to TypeSafe. Every request and answer is cached under `~/.canny/jev/`, so that text also sits on disk.
 - Without a key, nothing leaves the machine.
-- Hook errors go to `~/.canny/errors.log`.
+- Hook errors go to `~/.canny/errors.log`. A hook that fails always answers `{}` to the agent, so a bug in Canny can never block you.
 
-Set `CANNY_HOME` to move all of it.
+One hook call costs about 40 milliseconds on a laptop.
 
 ## Configuration
 
-Optional `.canny.json` in the project (or any parent up to your home directory):
+Optional `.canny.json` in the project, or in any parent directory up to your home:
 
 ```json
 {
@@ -93,42 +178,57 @@ Optional `.canny.json` in the project (or any parent up to your home directory):
 }
 ```
 
-- `verify`: regexes for commands that count as a check. Replaces the built-in list (pytest, vitest, jest, go test, cargo test, tsc, eslint, ruff, pre-commit, and about forty more).
+- `verify`: regexes for commands that count as a check. Replaces the built-in list of about eighty: pytest, vitest, jest, go test, cargo test, swift test, node --test, tsc, eslint, ruff, pre-commit, and so on. Quoted strings are stripped before matching, so a commit message that mentions pytest does not count.
 - `ignore`: regexes for edited paths that never need a check. Adds to docs, images, and lockfiles.
-- `rules`: rules for the Jev rule check. Replaces the automatic extraction of instruction-like bullets from `CLAUDE.md`, `AGENTS.md`, and `.claude/CLAUDE.md` (capped at 24, strongest first).
+- `rules`: the rules Jev is asked about. Replaces the automatic extraction of instruction-like bullets from `CLAUDE.md`, `AGENTS.md`, and `.claude/CLAUDE.md`, which keeps at most 24, strongest wording first.
 - `allow`: checks to turn off: `secrets`, `test-removal`, `repeat-failure`.
 - `strict`: keep blocking Stop until a check passes.
 
 ## Commands
 
-```bash
-canny status            # what the ledger knows about the latest session
-canny sessions          # list recorded sessions
-canny replay            # re-derive every Stop verdict; exit 1 on any mismatch
+```text
+canny init [--claude] [--codex] [--global]   write hook config for this project, or your home
+canny remove [--global]                      take Canny's entries out again, leave the rest
+canny status [session-file]                  what the ledger knows about the latest session
+canny sessions                               list recorded sessions
+canny replay [session-file]                  re-derive every Stop verdict; exit 1 on a mismatch
+canny hook --agent claude|codex              what the hook config runs; reads one event on stdin
 ```
 
-## Agent differences
+Without a `canny` on your PATH, replace `canny` with `node ~/.canny/src/dist/cli.js`.
 
-Both agents share the hook wire format, and Canny sends the same JSON to both. What differs:
+## Claude Code and Codex differ in four places
 
-- Claude Code fires `PostToolUse` only when a command succeeds and `PostToolUseFailure` when it fails. Codex fires `PostToolUse` for both. Canny subscribes to both events on Claude Code.
-- Codex hook payloads carry no exit status for shell commands, only their output. Canny reads the exit code from the session transcript Codex passes as `transcript_path` (the `item_completed` record for the call). If that lookup fails, the exit code is unknown and the command does not count as a passing check.
-- Codex has no `ask` permission decision, so a test-removal check denies there with the same reason.
-- Codex file edits arrive as `apply_patch`; Canny parses the patch to find files, removed tests, and secrets.
-- Codex requires you to trust hooks once via `/hooks`.
+Both agents share the hook wire format, and Canny sends the same JSON to both. The differences are handled in one adapter each side of the decision:
 
-## Development
+1. Claude Code fires `PostToolUse` only for commands that succeed and `PostToolUseFailure` for the rest, with `Exit code N` on the first line of the error. Codex fires `PostToolUse` for both and puts no exit code in the payload at all. Canny reads Codex's exit code from the session transcript it passes as `transcript_path`, where the `item_completed` record for the call carries it. If that lookup fails, the exit code is unknown and the command does not count as a passing check.
+2. Codex has no `ask` decision, so the test-removal check denies there.
+3. Codex file edits arrive as an `apply_patch` document; Canny parses it for files, removed tests, and secrets.
+4. Codex asks you to trust hooks once, through `/hooks`. Claude Code picks up hook config from its settings files as you save them.
 
-```bash
-pnpm install
-pnpm test
-pnpm type-check
-pnpm lint
-pnpm build
-```
+Both were verified against live sessions: a Stop was blocked, the agent ran the tests, and the next Stop was allowed. Those ledgers replay clean.
 
-Run a hook by hand:
+## Does it help?
 
-```bash
-echo '{"hook_event_name":"Stop","session_id":"demo","cwd":"'"$PWD"'","last_assistant_message":"Done."}' | node dist/cli.js hook --agent claude
-```
+Honest answer: it stops the specific failure at the top of this page, and it does so deterministically. Whether it improves an agent's work over a whole project has not been measured yet. [pi-warden](https://github.com/DevMortimer/pi-warden), which does something similar for the Pi agent, published an A/B run of 4 versus 3 rule violations, which is not a difference. Canny's replay log is meant to be the calibration set for exactly that measurement, and it is the next thing to build. If you run Canny on real work and keep the ledgers, they are the data.
+
+The Jev half was built against TypeSafe's API reference and their SDK source and is covered by tests with a mocked endpoint. If you have a key and something misbehaves, open an issue with the `canny status` output.
+
+## Prior art and reading
+
+Canny is not another destructive-command blocker. That space is crowded, and [PolicyApprovalGate](https://dev.to/miura/i-built-a-pretooluse-hook-to-require-confirmation-for-selected-commands-even-in-claude-codes-auto-2bcn) already covers Claude Code and Codex together. The gap is checking the work itself.
+
+- [nullius](https://github.com/TejasViswa/nullius): evidence gates for Claude Code, no model. The closest relative.
+- [Mindlas](https://github.com/evolutionairy-ai/mindlas): drift gauges for long sessions.
+- [pi-warden](https://github.com/DevMortimer/pi-warden) and [pi-jev](https://github.com/y0usaf/pi-jev): the warden idea, and Jev as a judge, for the Pi agent. Canny borrows the shape and adds the rule that only facts block.
+- [Claude Code hooks reference](https://code.claude.com/docs/en/hooks) and [Codex hooks](https://developers.openai.com/codex/hooks): the two wire formats Canny normalizes.
+- TypeSafe: [landing page](https://typesafe.ai), [docs](https://docs.typesafe.ai), [how to build with System One](https://docs.typesafe.ai/concepts/how-to-build-with-system-one), [Noul](https://docs.typesafe.ai/primitives/noul), [confidence and thresholds](https://docs.typesafe.ai/confidence), [self-consistency cookbook](https://docs.typesafe.ai/cookbooks/consistency_noul_cookbook).
+- House rules: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) for `CHANGELOG.md`, [Conventional Commits](https://www.conventionalcommits.org/) for history.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: `pnpm install`, then the five gates CI runs, and rebuild `dist/` before you commit, because the install path above depends on it.
+
+## License
+
+[MIT](LICENSE).

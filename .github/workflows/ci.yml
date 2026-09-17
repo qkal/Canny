@@ -21,3 +21,4 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+      - run: git diff --exit-code -- dist

@@ -9,6 +9,8 @@ pnpm install
 pnpm build
 ```
 
+`dist/` is committed: it is what the install prompt in the README clones and runs, so there is no build step for users. Rebuild it before every commit that touches `src/`. CI fails when the committed `dist/` does not match the source.
+
 ## Before opening a pull request
 
 Run the same gates CI runs:
@@ -19,13 +21,14 @@ pnpm type-check
 pnpm lint
 pnpm test
 pnpm build
+git diff --exit-code -- dist
 ```
 
 Add a test when you fix a bug (the one that fails before the fix) or change what the gate decides. Four cases that differ only by input are one parametrized test.
 
 ## Trying a change against a real agent
 
-Build, then point a scratch project at the local build. `canny init` writes absolute paths when `canny` is not on your PATH, which is what you want here:
+Build, then point a scratch project at the local build. Without a `canny` on your PATH, `init` writes `node <path to this checkout>/dist/cli.js` into the hook config, which is what you want here:
 
 ```bash
 mkdir /tmp/scratch && cd /tmp/scratch && node ~/canny/dist/cli.js init --claude
