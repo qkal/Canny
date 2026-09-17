@@ -1,2 +1,4 @@
+# pnpm 12 refuses packages newer than its minimum release age unless listed here.
+# prettier 3.9.8 was hours old when the lockfile was made; drop this once it has aged.
 minimumReleaseAgeExclude:
   - prettier@3.9.8

@@ -35,7 +35,7 @@ Then, inside a project:
 canny init
 ```
 
-This writes hook entries into `.claude/settings.json` and `.codex/hooks.json`, keeping whatever is already there. The entries call `canny hook`, so they keep working across upgrades of Canny and Node. If `canny` is not on your PATH at init time, absolute paths to the current Node binary and install are written instead, and init says so. Use `--global` to install into `~/.claude` and `~/.codex` instead, and `--claude` or `--codex` to pick one agent. Codex asks you to trust new hooks once: run `/hooks` inside Codex.
+This writes hook entries into `.claude/settings.json` for Claude Code and `.codex/hooks.json` for Codex, keeping whatever is already there. Without flags it picks the agents it finds installed (a `~/.claude` or `~/.codex` directory), and both when it finds neither. The entries call `canny hook`, so they keep working across upgrades of Canny and Node. If `canny` is not on your PATH at init time, absolute paths to the current Node binary and install are written instead, and init says so. Use `--global` to install into `~/.claude` and `~/.codex` instead, and `--claude` or `--codex` to choose explicitly. Codex asks you to trust new hooks once: run `/hooks` inside Codex.
 
 Set `TYPESAFE_API_KEY` to enable Jev. Without it, Canny runs the deterministic checks alone.
 

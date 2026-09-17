@@ -78,7 +78,17 @@ async function hook(): Promise<void> {
 }
 
 function init(): void {
-  const both = !opts.claude && !opts.codex;
+  // Without flags, write for the agents installed here, or for both when neither left a trace.
+  const found = {
+    claude: existsSync(join(homedir(), ".claude")),
+    codex: existsSync(join(homedir(), ".codex")),
+  };
+  const explicit = Boolean(opts.claude || opts.codex);
+  const neither = !found.claude && !found.codex;
+  const want = {
+    claude: explicit ? Boolean(opts.claude) : found.claude || neither,
+    codex: explicit ? Boolean(opts.codex) : found.codex || neither,
+  };
   // A PATH lookup survives upgrades of canny and of Node. Absolute paths into a package store do not.
   const portable = onPath("canny");
   const cli = fileURLToPath(import.meta.url);
@@ -95,7 +105,7 @@ function init(): void {
     hooks: [{ type: "command", command: command(agent), timeout, statusMessage: "Canny" }],
   });
   const root = opts.global ? homedir() : process.cwd();
-  if (both || opts.claude) {
+  if (want.claude) {
     const tools = "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell";
     merge(join(root, ".claude", "settings.json"), {
       PreToolUse: [handler("claude", 10, tools)],
@@ -104,7 +114,7 @@ function init(): void {
       Stop: [handler("claude", 15)],
     });
   }
-  if (both || opts.codex) {
+  if (want.codex) {
     merge(join(root, ".codex", "hooks.json"), {
       PreToolUse: [handler("codex", 10, "Bash|apply_patch")],
       PostToolUse: [handler("codex", 15, "Bash|apply_patch")],
