@@ -1,0 +1,105 @@
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import type { Config } from "./config.js";
+import type { FileChange } from "./events.js";
+
+const VERIFY = [
+  /\b(pytest|vitest|jest|mocha|ava|cypress|playwright test|go test|cargo test|swift test|xcodebuild test|gradlew? test|mvn test|dotnet test|rspec|phpunit|mix test|bun test|deno test|node --test|node --run test|npm test|pnpm test|yarn test|make test|just test|python -m pytest|python -m unittest|npm run test|pnpm run test|yarn run test|tox|nox)\b/,
+  /\b(tsc|cargo build|go build|go vet|swift build|xcodebuild|gradlew? (build|assemble)|mvn (package|compile|verify)|dotnet build|npm run build|pnpm build|pnpm run build|yarn build|make build|just build|bun run build|vite build|next build|esbuild|webpack)\b/,
+  /\b(eslint|oxlint|biome (check|lint)|prettier --check|ruff (check|format --check)|flake8|pylint|mypy|pyright|pyrefly|ty check|pnpm type-check|npm run lint|pnpm lint|pnpm run lint|yarn lint|golangci-lint|cargo clippy|swiftlint|swift-format lint|pre-commit run|just lint|just check|rubocop|shellcheck)\b/,
+];
+
+const safeRegex = (p: string): RegExp | null => {
+  try {
+    return new RegExp(p);
+  } catch {
+    return null;
+  }
+};
+
+export const sha = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+/** Whether a shell command is a test, build, lint, or type check. Quoted strings are dropped so a commit message cannot match. */
+export function isVerify(command: string, config: Config): boolean {
+  const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
+  if (config.verify) return config.verify.some((p) => safeRegex(p)?.test(bare));
+  return VERIFY.some((re) => re.test(bare));
+}
+
+const IGNORE = /(^|\/)docs?\/|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock)$/i;
+
+/** Files whose edits never need a passing check: docs, images, lockfiles, and anything in `config.ignore`. */
+export function isIgnored(path: string, config: Config): boolean {
+  return IGNORE.test(path) || (config.ignore ?? []).some((p) => safeRegex(p)?.test(path));
+}
+
+const SECRETS: [string, RegExp][] = [
+  ["AWS access key", /\bAKIA[0-9A-Z]{16}\b/],
+  ["GitHub token", /\b(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})\b/],
+  ["Slack token", /\bxox[baprs]-[A-Za-z0-9-]{10,}/],
+  ["private key", /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----/],
+  ["OpenAI or Anthropic key", /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{24,}\b/],
+  ["Stripe key", /\b[sr]k_(?:live|test)_[A-Za-z0-9]{20,}\b/],
+  ["Google API key", /\bAIza[0-9A-Za-z_-]{35}\b/],
+  [
+    "hardcoded credential",
+    /(?:api[_-]?key|secret|token|passw(?:or)?d)\s*[:=]\s*["'`](?=[^"'`\s]*\d)(?=[^"'`\s]*[A-Za-z])[^"'`\s]{16,}["'`]/i,
+  ],
+];
+
+/** Labels of secret shapes found in text about to be written. */
+export function findSecrets(text: string): string[] {
+  return SECRETS.filter(([, re]) => re.test(text)).map(([label]) => label);
+}
+
+const TEST_PATH =
+  /(^|\/)(tests?|specs?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|_test\.(go|py|rs|rb|exs?)$|(^|\/)test_[^/]*\.py$|Tests?\.(swift|kt|java|cs)$|_spec\.rb$/;
+const CASE =
+  /\b[xf]?(?:it|test|describe)(?:\.\w+)?\s*\(|\bdef test_\w+|\bfunc Test\w+|#\[test\]|@Test\b|\bfunc test\w+\s*\(|\b(?:it|test)\s+"[^"]*"\s+do\b/g;
+const SKIP =
+  /\.(?:skip|todo|only)\s*\(|\b[xf](?:it|test|describe)\s*\(|@pytest\.mark\.(?:skip|xfail)|\bpytest\.(?:skip|xfail)\(|@unittest\.skip|\bt\.Skip(?:f|Now)?\(|#\[ignore\]|@Ignore\b|@Disabled\b|XCTSkip|\bpending\s*\(/g;
+
+/** Built with a constructor so the escape byte never appears literally in a regex. */
+const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
+
+export const isTestFile = (path: string): boolean => TEST_PATH.test(path);
+
+export interface TestDamage {
+  removed: number;
+  skipped: number;
+  deleted: boolean;
+}
+
+const count = (re: RegExp, text: string): number => (text.match(re) ?? []).length;
+
+/** Test cases removed, skip or focus markers added, or the whole test file deleted. Null when nothing is damaged. */
+export function testDamage(change: FileChange, cwd: string): TestDamage | null {
+  if (!isTestFile(change.path)) return null;
+  if (change.deleted) return { removed: 0, skipped: 0, deleted: true };
+  let removed = change.removed;
+  if (change.wholeFile) {
+    const file = resolve(cwd, change.path);
+    removed = existsSync(file) ? readFileSync(file, "utf8") : "";
+  }
+  const damage = {
+    removed: Math.max(0, count(CASE, removed) - count(CASE, change.added)),
+    skipped: Math.max(0, count(SKIP, change.added) - count(SKIP, removed)),
+    deleted: false,
+  };
+  return damage.removed || damage.skipped ? damage : null;
+}
+
+/** Stable id for a failure: the command plus its output tail with timings and colors stripped. */
+export function fingerprint(command: string, output: string): string {
+  const tail = output
+    .split("\n")
+    .slice(-30)
+    .join("\n")
+    .replace(ANSI, "")
+    .replace(/\d+(?:\.\d+)?\s*(?:ms|s|secs?|seconds?|m|mins?|minutes?)\b/g, "T")
+    .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\S*/g, "TS")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+  return sha(command + "\n" + tail).slice(0, 16);
+}

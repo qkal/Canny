@@ -1,0 +1,52 @@
+{
+  "name": "canny-warden",
+  "version": "0.1.0",
+  "description": "Warden for AI coding agents: an evidence ledger, a done-gate, and Jev-backed rule checks for Claude Code and Codex CLI",
+  "license": "MIT",
+  "author": "Kal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qkal/canny.git"
+  },
+  "homepage": "https://github.com/qkal/canny#readme",
+  "bugs": {
+    "url": "https://github.com/qkal/canny/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "hooks",
+    "ai-agents",
+    "coding-agent",
+    "guardrails",
+    "typesafe",
+    "jev"
+  ],
+  "type": "module",
+  "packageManager": "pnpm@12.4.1",
+  "bin": {
+    "canny": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "lint": "oxlint src test",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "prepack": "pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "oxlint": "^1.83.0",
+    "prettier": "^3.9.8",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}
