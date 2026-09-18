@@ -6,11 +6,13 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Added
 
+- `canny trust` accepts the nearest `.canny.json` as it stands, recording a hash of its contents under `~/.canny/trusted.json`.
 - `canny remove` takes Canny's hook entries out of a project or the home directory and leaves everything else in the files alone.
 - `canny init` writes hook config only for the agents it finds installed, unless told otherwise with `--claude` or `--codex`.
 
 ### Changed
 
+- `verify`, `ignore`, and `allow` in a `.canny.json` are ignored until the file is trusted, since it sits in the repository the agent is editing: a cloned repo can ship one and a blocked agent can write one. `rules` and `strict` are still read from any config. Existing projects need one `canny trust` for those three fields to work again.
 - Canny is installed from this repository, not from npm. The compiled `dist/` is committed, so a clone and `node ~/.canny/src/dist/cli.js init` is the whole install. The README carries prompts that let the agent do it.
 - Without a `canny` on PATH, `init` writes `node <checkout>/dist/cli.js` into the hook config instead of the absolute path of the Node binary, so a Node upgrade no longer breaks the hooks.
 

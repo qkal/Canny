@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { home, loadConfig } from "./config.js";
+import { findConfig, home, loadConfig, trust, WEAKENING } from "./config.js";
 import { normalize, type Agent } from "./events.js";
 import { decideStop, handle, serialize } from "./hook.js";
 import { makeJudge } from "./jev.js";
@@ -48,6 +48,9 @@ switch (cmd) {
   case "remove":
     remove();
     break;
+  case "trust":
+    trustConfig();
+    break;
   default:
     console.log(
       [
@@ -59,6 +62,7 @@ switch (cmd) {
         "  canny sessions                               list recorded sessions",
         "  canny replay [session-file]                  re-derive every Stop verdict from the ledger",
         "  canny remove [--global]                      take Canny's hook entries out again",
+        "  canny trust                                  let this project's .canny.json turn checks off",
         "",
         `Sessions and the Jev cache live in ${home()}. Set TYPESAFE_API_KEY to enable Jev.`,
       ].join("\n"),
@@ -179,6 +183,22 @@ function remove(): void {
     if (existsSync(file)) merge(file, {});
 }
 
+/** A project config can only turn checks off once the user has seen it and said so. */
+function trustConfig(): void {
+  const found = findConfig(process.cwd());
+  if (!found) {
+    console.log(`no .canny.json at or above ${process.cwd()}`);
+    return;
+  }
+  trust(found.file);
+  const fields = WEAKENING.filter((f) => found.config[f] !== undefined);
+  console.log(
+    fields.length
+      ? `trusted ${found.file}: ${fields.join(", ")} now take effect`
+      : `trusted ${found.file}`,
+  );
+}
+
 function pick(): { file: string; entries: Entry[] } | null {
   const file = target ?? listSessions()[0]?.file;
   if (!file) {
@@ -195,7 +215,12 @@ function status(): void {
   const s = summarize(entries);
   const stops = entries.filter((e) => e.type === "verdict" && e.phase === "stop");
   const jev = entries.filter((e) => e.type === "jev");
+  const config = findConfig(process.cwd());
   console.log(`session   ${basename(file)}`);
+  if (config && !config.trusted && WEAKENING.some((f) => config.config[f] !== undefined))
+    console.log(
+      `config    ${config.file} is untrusted, so ${WEAKENING.join(", ")} are ignored; \`canny trust\` accepts it`,
+    );
   console.log(`events    ${entries.filter((e) => e.type === "event").length}`);
   console.log(
     `edited    ${s.codeFiles.length ? s.codeFiles.join(", ") : "nothing that needs a check"}`,

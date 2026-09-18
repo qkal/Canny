@@ -112,14 +112,14 @@ Claude Code also gets `PostToolUseFailure`, because that is where it reports a c
 
 ## What blocks and what only nags
 
-| Check | When | Decided by | Outcome |
-| --- | --- | --- | --- |
-| A code file changed and no test, build, lint, or type-check command has passed since | Stop | ledger | block |
-| Content about to be written contains a secret shape: AWS, GitHub, Slack, Stripe, Google, OpenAI or Anthropic keys, private key blocks, or `password = "…"` with real-looking entropy | PreToolUse | pattern | deny |
-| An edit removes test cases, adds `.skip`, `.only`, `xit`, `@pytest.mark.skip`, `t.Skip`, `#[ignore]`, `@Disabled`, `XCTSkip` and friends, or deletes a test file | PreToolUse | pattern | ask on Claude Code, deny on Codex |
-| The same command fails with the same output again | PostToolUse | ledger | note on the second, deny on the fourth attempt |
-| "Does this edit break a rule in `CLAUDE.md` or `AGENTS.md`?" | PostToolUse | Jev | note |
-| "Does this message claim the work is done?" | Stop | Jev | can only relax the done-gate |
+| Check                                                                                                                                                                                | When        | Decided by | Outcome                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ---------- | ---------------------------------------------- |
+| A code file changed and no test, build, lint, or type-check command has passed since                                                                                                 | Stop        | ledger     | block                                          |
+| Content about to be written contains a secret shape: AWS, GitHub, Slack, Stripe, Google, OpenAI or Anthropic keys, private key blocks, or `password = "…"` with real-looking entropy | PreToolUse  | pattern    | deny                                           |
+| An edit removes test cases, adds `.skip`, `.only`, `xit`, `@pytest.mark.skip`, `t.Skip`, `#[ignore]`, `@Disabled`, `XCTSkip` and friends, or deletes a test file                     | PreToolUse  | pattern    | ask on Claude Code, deny on Codex              |
+| The same command fails with the same output again                                                                                                                                    | PostToolUse | ledger     | note on the second, deny on the fourth attempt |
+| "Does this edit break a rule in `CLAUDE.md` or `AGENTS.md`?"                                                                                                                         | PostToolUse | Jev        | note                                           |
+| "Does this message claim the work is done?"                                                                                                                                          | Stop        | Jev        | can only relax the done-gate                   |
 
 "Ask" means the user gets a permission prompt with Canny's reason. Codex has no such decision, so it gets a deny with the same reason; the reason says how to allow it in `.canny.json` if the removal was intended.
 
@@ -130,7 +130,7 @@ At every Stop, in this order:
 1. No code file was edited this session: allow. Docs, images, and lockfiles do not count as code.
 2. A check exited 0 after the last code edit: allow.
 3. This is already a re-run after a block and nothing new has happened since: allow, and warn the user that the agent finished without a passing check. Set `"strict": true` to skip this step and keep blocking; Claude Code caps consecutive blocks at eight.
-4. Jev is available and at least 90 percent sure the message is *not* a "done" claim (the agent is asking a question, or reporting being stuck): allow.
+4. Jev is available and at least 90 percent sure the message is _not_ a "done" claim (the agent is asking a question, or reporting being stuck): allow.
 5. Otherwise: block, with a reason that names the files, the last command and its exit code, and what counts as a check.
 
 Step 4 is the only place Jev touches the gate, and it can only make it more permissive. Files an agent writes from the shell count as edits too: `cat > file <<'EOF'`, `tee`, `sed -i`, and `>` redirections are read out of every command, and Claude Code's own change list is used when it sends one.
@@ -147,13 +147,13 @@ Jev's probabilities are [calibrated](https://docs.typesafe.ai/introduction/machi
 
 Jev is hosted by TypeSafe behind an API key, and every judgment sends the clipped diff or the agent's last message to their API. If you would rather not, leave the key unset: the ledger, the done-gate, and the pattern checks work exactly the same, and only the two judgment questions go unanswered. The judge is one function, `makeJudge` in [`src/jev.ts`](src/jev.ts), that posts to `CANNY_JEV_URL`. Point it at anything that speaks the same [request shape](https://docs.typesafe.ai/api) to swap in a local model.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `TYPESAFE_API_KEY` | unset | Enables Jev |
-| `CANNY_JEV_URL` | `https://api.typesafe.ai/v1/systemone` | Endpoint |
-| `CANNY_JEV_MODEL` | `jev-latest` | Model alias; see [models](https://docs.typesafe.ai/models) |
-| `CANNY_JEV_TIMEOUT_MS` | `3000` | Per request; a timeout counts as no answer |
-| `CANNY_HOME` | `~/.canny` | Sessions, cache, error log, and the source checkout |
+| Variable               | Default                                | Meaning                                                    |
+| ---------------------- | -------------------------------------- | ---------------------------------------------------------- |
+| `TYPESAFE_API_KEY`     | unset                                  | Enables Jev                                                |
+| `CANNY_JEV_URL`        | `https://api.typesafe.ai/v1/systemone` | Endpoint                                                   |
+| `CANNY_JEV_MODEL`      | `jev-latest`                           | Model alias; see [models](https://docs.typesafe.ai/models) |
+| `CANNY_JEV_TIMEOUT_MS` | `3000`                                 | Per request; a timeout counts as no answer                 |
+| `CANNY_HOME`           | `~/.canny`                             | Sessions, cache, error log, and the source checkout        |
 
 ## What stays on disk, what leaves the machine
 
@@ -184,11 +184,24 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 - `allow`: checks to turn off: `secrets`, `test-removal`, `repeat-failure`.
 - `strict`: keep blocking Stop until a check passes.
 
+### The three fields that loosen the guard wait for `canny trust`
+
+`.canny.json` lives in the repository the agent is editing. A repo you clone can ship one, and an agent that just got blocked can write one. So the three fields that can turn a check off — `verify`, `ignore`, `allow` — do nothing until you run `canny trust` in the project. `rules` and `strict` are read either way: they only ever ask for more.
+
+```text
+canny trust     trusted /work/api/.canny.json: verify, allow now take effect
+```
+
+Trust records a hash of the exact contents, so any later edit to the file — by you or by the agent — drops it back to untrusted, and `canny status` prints a line saying which fields are being ignored.
+
+This is a speed bump, not a sandbox. An agent with shell access can run `canny trust` itself, and nothing local could stop it. What the step buys is that a config which turns checks off never takes effect silently: it takes a separate, visible act, which lands in your shell history and in Canny's own ledger.
+
 ## Commands
 
 ```text
 canny init [--claude] [--codex] [--global]   write hook config for this project, or your home
 canny remove [--global]                      take Canny's entries out again, leave the rest
+canny trust                                  accept this project's .canny.json as it stands
 canny status [session-file]                  what the ledger knows about the latest session
 canny sessions                               list recorded sessions
 canny replay [session-file]                  re-derive every Stop verdict; exit 1 on a mismatch
