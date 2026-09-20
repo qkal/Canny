@@ -24,7 +24,14 @@ describe("findSecrets", () => {
 describe("isVerify", () => {
   it.each([
     ["pnpm test", true],
-    ["node --test 2>&1 | tail -20", true],
+    ["node --test 2>&1 | tail -20", false],
+    ["set -o pipefail; node --test 2>&1 | tail -20", true],
+    ["pnpm test || true", false],
+    ["pnpm test; echo done", false],
+    ["pnpm test 2>&1 | tail -5 && pnpm lint", true],
+    ["echo tsc", false],
+    ["tsc --version", false],
+    ["git diff -- vitest.config.ts", false],
     ["cd web && uv run pytest -q", true],
     ["pnpm type-check", true],
     ["cargo build --release", true],
@@ -130,5 +137,11 @@ describe("fingerprint", () => {
     const c = fingerprint("pnpm test", "FAIL a.test.ts\n2 failed in 3.4s at 2026-09-18T00:05:07Z");
     expect(a).toBe(b);
     expect(a).not.toBe(c);
+  });
+
+  it("stays fast on one huge line of digits", () => {
+    const started = performance.now();
+    fingerprint("pnpm test", "ok\n" + "9".repeat(200_000));
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });

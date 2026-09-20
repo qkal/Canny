@@ -15,15 +15,35 @@ const safeRegex = (p) => {
     }
 };
 export const sha = (text) => createHash("sha256").update(text).digest("hex");
-/** Whether a shell command is a test, build, lint, or type check. Quoted strings are dropped so a commit message cannot match. */
+/** Commands that print or inspect: `echo tsc` and `git diff -- vitest.config.ts` prove nothing. */
+// ponytail: denylist of first words, move to parsing the command position if agents find other ways around it
+const NOT_A_CHECK = /^(?:echo|printf|cat|grep|rg|ls|which|type|command|man|head|tail|git)\b|\s--(?:version|help)\b/;
+/**
+ * Whether a shell command is a test, build, lint, or type check whose exit status reaches the
+ * agent. Quoted strings are dropped so a commit message cannot match. A check piped into another
+ * command without `pipefail`, followed by `||`, or followed by `;` and something else reports the
+ * other command's status, so it does not count.
+ */
 export function isVerify(command, config) {
     const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
-    if (config.verify)
-        return config.verify.some((p) => safeRegex(p)?.test(bare));
-    return VERIFY.some((re) => re.test(bare));
+    const pipefail = /\bpipefail\b/.test(bare);
+    const last = bare
+        .split(/[;\n]/)
+        .map((s) => s.trim())
+        .findLast(Boolean) ?? "";
+    return last.split("&&").some((raw) => {
+        const part = raw.trim();
+        if (part.includes("||") || (!pipefail && part.includes("|")))
+            return false;
+        if (NOT_A_CHECK.test(part))
+            return false;
+        return config.verify
+            ? config.verify.some((p) => safeRegex(p)?.test(part))
+            : VERIFY.some((re) => re.test(part));
+    });
 }
-const IGNORE = /(^|\/)docs?\/|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock)$/i;
-/** Files whose edits never need a passing check: docs, images, lockfiles, and anything in `config.ignore`. */
+const IGNORE = /(^|\/)docs?\/|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
+/** Files whose edits never need a passing check: docs, images, lockfiles, logs, and anything in `config.ignore`. */
 export function isIgnored(path, config) {
     return IGNORE.test(path) || (config.ignore ?? []).some((p) => safeRegex(p)?.test(path));
 }
@@ -49,6 +69,8 @@ const CASE = /\b[xf]?(?:it|test|describe)(?:\.\w+)?\s*\(|\bdef test_\w+|\bfunc T
 const SKIP = /\.(?:skip|todo|only)\s*\(|\b[xf](?:it|test|describe)\s*\(|@pytest\.mark\.(?:skip|xfail)|\bpytest\.(?:skip|xfail)\(|@unittest\.skip|\bt\.Skip(?:f|Now)?\(|#\[ignore\]|@Ignore\b|@Disabled\b|XCTSkip|\bpending\s*\(/g;
 /** Built with a constructor so the escape byte never appears literally in a regex. */
 const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
+/** Text safe to store and print: command output can carry escape sequences that redraw the terminal. */
+export const plain = (text) => text.replace(ANSI, "").replace(/\p{Cc}+/gu, " ");
 export const isTestFile = (path) => TEST_PATH.test(path);
 const count = (re, text) => (text.match(re) ?? []).length;
 /** Test cases removed, skip or focus markers added, or the whole test file deleted. Null when nothing is damaged. */
@@ -69,14 +91,17 @@ export function testDamage(change, cwd) {
     };
     return damage.removed || damage.skipped ? damage : null;
 }
+/** One output line can be megabytes long; the normalising regexes only ever see this much. */
+const TAIL_CHARS = 8000;
 /** Stable id for a failure: the command plus its output tail with timings and colors stripped. */
 export function fingerprint(command, output) {
     const tail = output
         .split("\n")
         .slice(-30)
         .join("\n")
+        .slice(-TAIL_CHARS)
         .replace(ANSI, "")
-        .replace(/\d+(?:\.\d+)?\s*(?:ms|s|secs?|seconds?|m|mins?|minutes?)\b/g, "T")
+        .replace(/(?<!\d)\d+(?:\.\d+)?\s*(?:ms|s|secs?|seconds?|m|mins?|minutes?)\b/g, "T")
         .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\S*/g, "TS")
         .replace(/[ \t]+/g, " ")
         .trim();

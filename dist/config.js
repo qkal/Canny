@@ -43,7 +43,7 @@ export function loadConfig(cwd) {
 /** Record a config file's current contents as trusted. Only the user runs this. */
 export function trust(file) {
     const next = { ...store(), [file]: sha(readText(file)) };
-    mkdirSync(home(), { recursive: true });
+    mkdirSync(home(), { recursive: true, mode: 0o700 });
     writeFileSync(trustFile(), JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
 }
 const trustFile = () => join(home(), "trusted.json");

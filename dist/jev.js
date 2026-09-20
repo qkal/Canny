@@ -57,8 +57,8 @@ export function makeJudge(opts) {
                 if (typeof n === "number")
                     answers[id] = n;
             }
-            mkdirSync(dirname(file), { recursive: true });
-            writeFileSync(file, JSON.stringify({ body, answers, ts: Date.now() }));
+            mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+            writeFileSync(file, JSON.stringify({ body, answers, ts: Date.now() }), { mode: 0o600 });
             opts.log({ hash, ids, cached: false, ms: Date.now() - started, answers });
             return answers;
         }

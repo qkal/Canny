@@ -178,7 +178,7 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 }
 ```
 
-- `verify`: regexes for commands that count as a check. Replaces the built-in list of about eighty: pytest, vitest, jest, go test, cargo test, swift test, node --test, tsc, eslint, ruff, pre-commit, and so on. Quoted strings are stripped before matching, so a commit message that mentions pytest does not count.
+- `verify`: regexes for commands that count as a check. Replaces the built-in list of about eighty: pytest, vitest, jest, go test, cargo test, swift test, node --test, tsc, eslint, ruff, pre-commit, and so on. Quoted strings are stripped before matching, so a commit message that mentions pytest does not count. The check's own exit status has to be the result: piped into `tail` without `pipefail`, followed by `|| true`, or followed by `; echo done`, it does not count.
 - `ignore`: regexes for edited paths that never need a check. Adds to docs, images, and lockfiles.
 - `rules`: the rules Jev is asked about. Replaces the automatic extraction of instruction-like bullets from `CLAUDE.md`, `AGENTS.md`, and `.claude/CLAUDE.md`, which keeps at most 24, strongest wording first. Because it replaces that extraction, it waits for `canny trust`.
 - `allow`: checks to turn off: `secrets`, `test-removal`, `repeat-failure`.

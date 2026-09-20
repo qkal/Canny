@@ -1,12 +1,15 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { fingerprint, isIgnored, isVerify, sha } from "./checks.js";
+import { fingerprint, isIgnored, isVerify, plain, sha } from "./checks.js";
 import { home } from "./config.js";
 export const sessionsDir = () => join(home(), "sessions");
 export const sessionFile = (agent, session) => join(sessionsDir(), `${agent}-${session.replace(/[^\w.-]/g, "_")}.jsonl`);
 /** Paths are kept relative to the session cwd so ledgers read the same on any machine. */
-export const rel = (cwd, p) => (isAbsolute(p) ? relative(cwd, p) || p : p);
-/** The part of an event worth keeping: paths and outcomes, never file contents. */
+export const rel = (cwd, p) => plain(isAbsolute(p) ? relative(cwd, p) || p : p);
+/**
+ * The part of an event worth keeping: paths and outcomes, never file contents. Every string goes
+ * through `plain`, because the ledger is printed to the user's terminal and into agent messages.
+ */
 export function toFact(event, cwd, config) {
     const code = (paths) => paths.filter((p) => !isIgnored(p, config));
     switch (event.kind) {
@@ -19,11 +22,11 @@ export function toFact(event, cwd, config) {
             const lines = event.output.split("\n").filter((l) => l.trim());
             return {
                 kind: "command",
-                command: event.command,
+                command: plain(event.command),
                 exitCode: event.exitCode,
                 verify: isVerify(event.command, config),
                 fingerprint: fingerprint(event.command, event.output),
-                summary: (lines.at(-1) ?? "").slice(0, 200),
+                summary: plain(lines.at(-1) ?? "").slice(0, 200),
                 code: code(event.changedFiles.map((p) => rel(cwd, p))),
             };
         }
@@ -37,10 +40,10 @@ export function toFact(event, cwd, config) {
             return null;
     }
 }
-/** Append-only so parallel hook processes never clobber each other. */
+/** Append-only so parallel hook processes never clobber each other. Owner-only: command lines can hold credentials. */
 export function append(file, entry) {
-    mkdirSync(dirname(file), { recursive: true });
-    appendFileSync(file, JSON.stringify(entry) + "\n");
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+    appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 });
 }
 export function read(file) {
     if (!existsSync(file))

@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { fingerprint, isIgnored, isVerify, sha } from "./checks.js";
+import { fingerprint, isIgnored, isVerify, plain, sha } from "./checks.js";
 import { home, type Config } from "./config.js";
 import type { Agent, Event, Phase } from "./events.js";
 import type { JevLog } from "./jev.js";
@@ -39,9 +39,13 @@ export const sessionFile = (agent: Agent, session: string): string =>
   join(sessionsDir(), `${agent}-${session.replace(/[^\w.-]/g, "_")}.jsonl`);
 
 /** Paths are kept relative to the session cwd so ledgers read the same on any machine. */
-export const rel = (cwd: string, p: string): string => (isAbsolute(p) ? relative(cwd, p) || p : p);
+export const rel = (cwd: string, p: string): string =>
+  plain(isAbsolute(p) ? relative(cwd, p) || p : p);
 
-/** The part of an event worth keeping: paths and outcomes, never file contents. */
+/**
+ * The part of an event worth keeping: paths and outcomes, never file contents. Every string goes
+ * through `plain`, because the ledger is printed to the user's terminal and into agent messages.
+ */
 export function toFact(event: Event, cwd: string, config: Config): Fact | null {
   const code = (paths: string[]): string[] => paths.filter((p) => !isIgnored(p, config));
   switch (event.kind) {
@@ -54,11 +58,11 @@ export function toFact(event: Event, cwd: string, config: Config): Fact | null {
       const lines = event.output.split("\n").filter((l) => l.trim());
       return {
         kind: "command",
-        command: event.command,
+        command: plain(event.command),
         exitCode: event.exitCode,
         verify: isVerify(event.command, config),
         fingerprint: fingerprint(event.command, event.output),
-        summary: (lines.at(-1) ?? "").slice(0, 200),
+        summary: plain(lines.at(-1) ?? "").slice(0, 200),
         code: code(event.changedFiles.map((p) => rel(cwd, p))),
       };
     }
@@ -73,10 +77,10 @@ export function toFact(event: Event, cwd: string, config: Config): Fact | null {
   }
 }
 
-/** Append-only so parallel hook processes never clobber each other. */
+/** Append-only so parallel hook processes never clobber each other. Owner-only: command lines can hold credentials. */
 export function append(file: string, entry: Entry): void {
-  mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, JSON.stringify(entry) + "\n");
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 });
 }
 
 export function read(file: string): Entry[] {

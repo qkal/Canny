@@ -1,4 +1,4 @@
-import { findSecrets, testDamage, type TestDamage } from "./checks.js";
+import { findSecrets, plain, testDamage, type TestDamage } from "./checks.js";
 import { off, type Config } from "./config.js";
 import type { Ctx, FileChange } from "./events.js";
 import { NO, YES, noul, type Judge } from "./jev.js";
@@ -55,8 +55,9 @@ function pre(ctx: Ctx, deps: Deps): Decision {
   }
   if (event.kind === "command" && !off(deps.config, "repeat-failure")) {
     const s = summarize(read(deps.file));
+    const command = plain(event.command);
     const hit = Object.values(s.repeats).find(
-      (r) => r.command === event.command && r.n >= REPEAT_DENY_AFTER,
+      (r) => r.command === command && r.n >= REPEAT_DENY_AFTER,
     );
     if (hit)
       return record(ctx, deps, {
@@ -158,7 +159,7 @@ function blockReason(s: Summary, config: Config): string {
     : "";
   const counts = config.verify?.length
     ? ` Commands that count: ${config.verify.map((v) => `\`${v}\``).join(", ")}.`
-    : " A test, build, lint, or type-check command counts.";
+    : " A test, build, lint, or type-check command counts, run so its own exit status is the result: a pipe into `tail`, `|| true`, or a trailing `; echo` hides it.";
   const tail = config.strict
     ? ""
     : " If no check applies to this change, say so explicitly and stop again.";
