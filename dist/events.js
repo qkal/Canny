@@ -115,7 +115,8 @@ function command(input, cmd, phase, agent) {
         command: cmd,
         exitCode: null,
         output: "",
-        changedFiles: [],
+        // Read from the command text, so a command that failed or answered with a bare string still counts.
+        changedFiles: phase === "pre" ? [] : shellChanges(cmd),
     };
     if (phase === "pre")
         return base;
@@ -142,27 +143,19 @@ function command(input, cmd, phase, agent) {
     const fromDiff = Array.isArray(diff.changedFiles)
         ? diff.changedFiles.filter((f) => typeof f === "string")
         : [];
-    const ops = fileOps(cmd);
-    const changedFiles = [
-        ...new Set([
-            ...fromDiff,
-            ...writeTargets(cmd),
-            ...ops.written,
-            ...ops.removed,
-            ...ops.moved.map(([from]) => from),
-        ]),
-    ];
+    const changedFiles = [...new Set([...fromDiff, ...base.changedFiles])];
     return { ...base, exitCode, output, changedFiles };
 }
 const NOT_A_FILE = /^(&\d*|\/dev\/(null|stdout|stderr|tty)|-)$/;
+const HEREDOC = /<<-?\s*(["']?)([^\s"'<>|;&]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g;
 /** Heredoc bodies hold text, not shell: `> quote` in markdown, `rm x` in a script being written. */
-const withoutHeredocs = (cmd) => cmd.replace(/<<-?\s*(["']?)([^\s"'<>|;&]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g, (m) => m.split("\n", 1)[0]);
+const withoutHeredocs = (cmd) => cmd.replace(HEREDOC, (m) => m.split("\n", 1)[0]);
 const unquote = (t) => t.replace(/^["']|["']$/g, "");
 /** Files a shell command copies, moves, deletes, or restores. No Write or Edit hook fires for these. */
-// ponytail: reads rm, cp, mv and git at command position only; `find -exec rm` and `xargs rm` are not seen
+// ponytail: reads rm, cp, mv and git at command position, after `then`/`do`/`else`, or by path; `find -exec rm` and `xargs rm` are not seen
 export function fileOps(cmd) {
     const ops = { written: [], removed: [], moved: [] };
-    const found = withoutHeredocs(cmd).matchAll(/(?:^|[;&|(\n])\s*(?:sudo\s+)?(rm|cp|mv|git\s+(?:rm|mv|checkout|restore))\s+([^;&|\n]*)/g);
+    const found = withoutHeredocs(cmd).matchAll(/(?:^|[;&|(\n]|\b(?:then|do|else)\s)\s*(?:sudo\s+)?(?:[^\s;&|]*\/)?(rm|cp|mv|git\s+(?:rm|mv|checkout|restore))\s+([^;&|\n]*)/g);
     for (const m of found) {
         const op = m[1].replace(/\s+/g, " ");
         let tokens = m[2].match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
@@ -190,6 +183,29 @@ export function fileOps(cmd) {
         }
     }
     return ops;
+}
+/** Every file a shell command changes, as far as its text shows. */
+const shellChanges = (cmd) => {
+    const ops = fileOps(cmd);
+    return [...writeTargets(cmd), ...ops.written, ...ops.removed, ...ops.moved.map(([from]) => from)];
+};
+/**
+ * Literal text a command puts into files, with the files it goes to: heredoc bodies and `echo` or
+ * `printf` statements that redirect or pipe into `tee`. A key in a `curl` header whose response is
+ * saved is used, not written, so it is not part of this.
+ */
+export function shellWrites(cmd) {
+    const out = [];
+    for (const m of cmd.matchAll(HEREDOC)) {
+        // The match starts at `<<`; the redirect can sit on either side of it on the same line.
+        const opener = m[0].split("\n", 1)[0];
+        const head = cmd.slice(cmd.lastIndexOf("\n", m.index) + 1, m.index) + opener;
+        out.push({ text: m[0].slice(opener.length), targets: writeTargets(head) });
+    }
+    for (const statement of withoutHeredocs(cmd).split(/&&|\|\||[;\n]/))
+        if (/^\s*(?:echo|printf)\b/.test(statement))
+            out.push({ text: statement, targets: writeTargets(statement) });
+    return out.filter((w) => w.targets.length);
 }
 /**
  * Files a shell command writes by redirection or in-place edit. Agents write files this way when

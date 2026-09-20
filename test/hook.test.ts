@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -145,10 +145,15 @@ describe("shell file operations in the ledger", () => {
     ["rm src/a.ts", "block"],
     ["cp src/a.ts src/b.ts", "block"],
     ["git checkout -- src/a.ts", "block"],
-    ["rm -rf node_modules /tmp/canny-scratch.json", "allow"],
+    ["rm -rf node_modules /tmp/canny-scratch.json /var/tmp/x.json", "allow"],
+    ["rm ../../../../../../../../tmp/canny-scratch.ts", "allow"],
   ])("%s then stop -> %s", async (command, kind) => {
     await ran(command);
     expect((await stop()).kind).toBe(kind);
+  });
+  it("counts files a failed command changed before it failed", async () => {
+    await ran("rm src/a.ts; false", 1);
+    expect((await stop()).kind).toBe("block");
   });
 });
 
@@ -179,7 +184,13 @@ describe("pre checks", () => {
       kind: "deny",
       message: expect.stringContaining("src/k.ts"),
     });
+    expect(await bash(`cat > src/k.ts <<'EOF'\nconst k = '${key}'\nEOF`)).toMatchObject({
+      kind: "deny",
+    });
     expect(await bash(`aws configure set aws_access_key_id ${key}`)).toEqual({ kind: "allow" });
+    expect(await bash(`curl -H 'X-Key: ${key}' https://example.com > response.json`)).toEqual({
+      kind: "allow",
+    });
     expect(await bash(`echo ${key} > src/k.ts`, { allow: ["secrets"] })).toEqual({ kind: "allow" });
   });
 
@@ -197,6 +208,9 @@ describe("pre checks", () => {
       kind: "allow",
     });
     expect(await write(".env")).toMatchObject({ kind: "deny" });
+    writeFileSync(join(cwd, ".gitignore"), ".env.local\n.env.prod\n");
+    symlinkSync(join(cwd, "src-config.ts"), join(cwd, ".env.prod"));
+    expect(await write(".env.prod")).toMatchObject({ kind: "deny" });
     expect(await write(".env.example")).toMatchObject({ kind: "deny" });
   });
 
@@ -206,6 +220,8 @@ describe("pre checks", () => {
     ["cd web && git rm src/a.spec.ts", "ask"],
     ["mv test/a.test.ts /tmp/a.bak", "ask"],
     ["mv test/a.test.ts test/b.test.ts", "allow"],
+    ["if true; then rm test/a.test.ts; fi", "ask"],
+    ["/bin/rm test/a.test.ts", "ask"],
     ["rm src/a.ts dist/a.js", "allow"],
     ['git commit -m "rm test/a.test.ts"', "allow"],
     ["cat > cleanup.sh <<'EOF'\nrm test/a.test.ts\nEOF", "allow"],

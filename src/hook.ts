@@ -7,7 +7,7 @@ import {
   type TestDamage,
 } from "./checks.js";
 import { off, type Config } from "./config.js";
-import { fileOps, writeTargets, type Ctx, type FileChange } from "./events.js";
+import { fileOps, shellWrites, type Ctx, type FileChange } from "./events.js";
 import { NO, YES, noul, type Judge } from "./jev.js";
 import { append, read, rel, summarize, toFact, type Fact, type Summary } from "./ledger.js";
 import { loadRules } from "./rules.js";
@@ -59,10 +59,12 @@ function pre(ctx: Ctx, deps: Deps): Decision {
   }
   // The shell reaches the same files with no Write or Edit event, so the same two checks read the command.
   if (event.kind === "command") {
-    const targets = writeTargets(event.command).filter((p) => !isPrivateEnv(p, ctx.cwd));
-    const hits = targets.length && !off(deps.config, "secrets") ? findSecrets(event.command) : [];
-    if (hits.length)
-      return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, targets, hits) });
+    for (const w of off(deps.config, "secrets") ? [] : shellWrites(event.command)) {
+      const hits = findSecrets(w.text);
+      const targets = hits.length ? w.targets.filter((p) => !isPrivateEnv(p, ctx.cwd)) : [];
+      if (targets.length)
+        return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, targets, hits) });
+    }
     const ops = off(deps.config, "test-removal") ? null : fileOps(event.command);
     const gone = [
       ...(ops?.removed ?? []),

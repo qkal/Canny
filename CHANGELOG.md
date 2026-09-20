@@ -20,7 +20,7 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
-- The secret check reads shell commands that write a file, so `echo "key = 'sk-…'" > src/config.ts` is denied like the same `Write` would be. A command that only uses a key, with no file written, is left alone.
+- The secret check reads shell commands that write a file, so `echo "key = 'sk-…'" > src/config.ts` is denied like the same `Write` would be. Only text the command itself puts into the file is read: heredoc bodies and `echo` or `printf` statements. A key that is only used, such as a `curl` header whose response is saved, is left alone.
 - `rm`, `git rm`, and `mv` of a test file or test directory get the same ask (deny on Codex) as deleting it through an edit. Moving a test to another test path is not removal.
 - `cp`, `mv`, `rm`, `git rm`, `git checkout -- file`, and `git restore` count as code changes in the ledger, so the done-gate sees them. Changes under `node_modules`, `.venv`, `__pycache__`, `coverage`, `.cache`, and temp files outside the project do not.
 - Writing a key into a `.env` file that git ignores is allowed; that is where the deny message sends the agent. A `.env` that is not ignored, and `.env.example`-style templates, are still denied.

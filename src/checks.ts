@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import type { Config } from "./config.js";
 import type { FileChange } from "./events.js";
@@ -58,8 +58,12 @@ const IGNORE =
   /(^|\/)docs?\/|(^|\/)(node_modules|\.venv|__pycache__|coverage|\.cache|\.git)(\/|$)|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
 
 /** Scratch space outside the project. A project that itself lives under a temp directory is not scratch. */
-export const isScratch = (path: string, cwd: string): boolean =>
-  /^(\/private)?\/(tmp|var\/folders)\//.test(path) && relative(cwd, path).startsWith("..");
+export const isScratch = (path: string, cwd: string): boolean => {
+  const abs = resolve(cwd, path);
+  return (
+    /^(\/private)?\/(tmp|var\/tmp|var\/folders)\//.test(abs) && relative(cwd, abs).startsWith("..")
+  );
+};
 
 /** Files whose edits never need a passing check: docs, images, lockfiles, logs, installed packages, and anything in `config.ignore`. */
 export function isIgnored(path: string, config: Config): boolean {
@@ -86,6 +90,8 @@ const ENV_TEMPLATE = /\.(example|sample|template|dist)$/;
 /** A `.env` file git ignores is where keys belong. Templates are committed, so they never qualify. */
 export function isPrivateEnv(path: string, cwd: string): boolean {
   if (!ENV_FILE.test(path) || ENV_TEMPLATE.test(path)) return false;
+  // A write through a symlink lands in its target, which may be a tracked file.
+  if (lstatSync(resolve(cwd, path), { throwIfNoEntry: false })?.isSymbolicLink()) return false;
   try {
     execFileSync("git", ["check-ignore", "-q", path], { cwd, stdio: "ignore", timeout: 2000 });
     return true;
