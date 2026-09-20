@@ -38,9 +38,13 @@ function pre(ctx, deps) {
     }
     // The shell reaches the same files with no Write or Edit event, so the same two checks read the command.
     if (event.kind === "command") {
+        // After a `cd`, a relative target is no longer relative to `ctx.cwd`, so no env file is exempt.
+        const moved = /(?:^|[;&|(\n])\s*(?:cd|pushd)\s/.test(event.command);
         for (const w of off(deps.config, "secrets") ? [] : shellWrites(event.command)) {
             const hits = findSecrets(w.text);
-            const targets = hits.length ? w.targets.filter((p) => !isPrivateEnv(p, ctx.cwd)) : [];
+            const targets = hits.length
+                ? w.targets.filter((p) => moved || !isPrivateEnv(p, ctx.cwd))
+                : [];
             if (targets.length)
                 return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, targets, hits) });
         }
