@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -250,5 +250,29 @@ describe("serialize", () => {
       reason: "r",
       systemMessage: "r",
     });
+  });
+});
+
+describe("ledger file", () => {
+  it("is owner-only and holds no terminal escapes from command output", async () => {
+    await run({
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "npm test" },
+      tool_response: { stdout: "ok\nverified  yes\r\x1b[2Kfine", stderr: "" },
+    });
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    const { lastCommand } = summarize(read(file));
+    expect(lastCommand?.summary).toBe("verified  yes [2Kfine");
+  });
+
+  it("still denies a multi-line command that keeps failing the same way", async () => {
+    for (let i = 0; i < 3; i++) await ran("cd web &&\n  pnpm test", 1);
+    const d = await run({
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "cd web &&\n  pnpm test" },
+    });
+    expect(d.kind).toBe("deny");
   });
 });

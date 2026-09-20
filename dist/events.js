@@ -152,9 +152,14 @@ const NOT_A_FILE = /^(&\d*|\/dev\/(null|stdout|stderr|tty)|-)$/;
  */
 export function writeTargets(cmd) {
     const out = [];
-    for (const m of cmd.matchAll(/(?:^|[\s;&|(])\d?>{1,2}\s*("[^"]*"|'[^']*'|[^\s;&|)<>]+)/g))
+    // Heredoc bodies and quoted strings hold text, not redirections: `> quote` in markdown, `a > b`
+    // in a commit message. A quoted string right after `>` or `tee` is a file name and stays.
+    const shell = cmd
+        .replace(/<<-?\s*(["']?)([^\s"'<>|;&]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g, (m) => m.split("\n", 1)[0])
+        .replace(/(>\s*|\btee\s+(?:-[ai]+\s+)*)?("[^"]*"|'[^']*')/g, (m, keep) => keep ? m : "");
+    for (const m of shell.matchAll(/(?:^|[\s;&|(])\d?>{1,2}\s*("[^"]*"|'[^']*'|[^\s;&|)<>]+)/g))
         out.push(m[1]);
-    for (const m of cmd.matchAll(/\btee\s+(?:-[ai]+\s+)*([^\s;&|)<>-][^\s;&|)<>]*)/g))
+    for (const m of shell.matchAll(/\btee\s+(?:-[ai]+\s+)*([^\s;&|)<>-][^\s;&|)<>]*)/g))
         out.push(m[1]);
     for (const m of cmd.matchAll(/\b(?:sed\s+-i\S*|perl\s+-p?i\S*)\s+([^;&|]+)/g)) {
         const tokens = m[1].match(/"[^"]*"|'[^']*'|\S+/g) ?? [];

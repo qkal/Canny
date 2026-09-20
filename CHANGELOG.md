@@ -18,6 +18,14 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 - Canny is installed from this repository, not from npm. The compiled `dist/` is committed, so a clone and `node ~/.canny/src/dist/cli.js init` is the whole install. The README carries prompts that let the agent do it.
 - Without a `canny` on PATH, `init` writes `node <checkout>/dist/cli.js` into the hook config instead of the absolute path of the Node binary, so a Node upgrade no longer breaks the hooks.
 
+### Fixed
+
+- A check whose exit status never reaches the agent no longer counts as passing: `pnpm test 2>&1 | tail -20` without `pipefail`, `pnpm test || true`, and `pnpm test; echo done` all report another command's status. Commands that only print or inspect (`echo tsc`, `tsc --version`, `git diff -- vitest.config.ts`) do not count either. The block message says so.
+- `>` inside a quoted string or a heredoc body is no longer read as a file write, so `git commit -m "a > b"` does not make a session with no edits fail the done-gate. `.log` files do not count as code.
+- One very long line of digits in command output stalled the hook past its timeout (41 s for 200 KB), which lost the ledger entry. The failure fingerprint now reads at most the last 8000 characters.
+- The ledger, the Jev cache, `errors.log`, and their directories are created owner-only (`0600`, `0700`), since recorded command lines can hold credentials. Files from earlier versions keep their old mode: `chmod -R go= ~/.canny` fixes them.
+- Escape sequences and control characters are stripped from commands, output summaries, and paths before they enter the ledger, so command output cannot redraw what `canny status` prints.
+
 ## [0.1.0] - 2026-09-18
 
 First release.

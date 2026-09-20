@@ -79,8 +79,10 @@ async function hook(): Promise<void> {
     const judge = makeJudge({ log: (e) => append(file, { ts: Date.now(), type: "jev", ...e }) });
     out = serialize(ctx, await handle(ctx, { config: loadConfig(ctx.cwd), judge, file }));
   } catch (e) {
-    mkdirSync(home(), { recursive: true });
-    appendFileSync(join(home(), "errors.log"), `${new Date().toISOString()} ${String(e)}\n`);
+    mkdirSync(home(), { recursive: true, mode: 0o700 });
+    appendFileSync(join(home(), "errors.log"), `${new Date().toISOString()} ${String(e)}\n`, {
+      mode: 0o600,
+    });
   }
   process.stdout.write(JSON.stringify(out));
 }

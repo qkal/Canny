@@ -161,6 +161,12 @@ describe("writeTargets", () => {
     ["perl -pi -e 's/a/b/' src/c.ts", ["src/c.ts"]],
     ["printf 'x' >\"quoted name.js\"", ["quoted name.js"]],
     ["ls -la", []],
+    ['git commit -m "perf: a > b now"', []],
+    ["node -e 'if (a > b) process.exit(1)'", []],
+    ["cat > notes.md <<'EOF'\n> a quote\nif (a > b)\nEOF", ["notes.md"]],
+    ["cat > notes.md <<'END-JSON'\n> a quote\nEND-JSON", ["notes.md"]],
+    ["printf 'code' | tee \"src/new.ts\"", ["src/new.ts"]],
+    ["printf 'code' | tee -a 'src/new.ts'", ["src/new.ts"]],
   ])("%j -> %j", (cmd, files) => expect(writeTargets(cmd)).toEqual(files));
 
   it("adds shell write targets to a Bash result's changed files", () => {

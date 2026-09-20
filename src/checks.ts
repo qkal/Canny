@@ -20,16 +20,42 @@ const safeRegex = (p: string): RegExp | null => {
 
 export const sha = (text: string): string => createHash("sha256").update(text).digest("hex");
 
-/** Whether a shell command is a test, build, lint, or type check. Quoted strings are dropped so a commit message cannot match. */
+/** Commands that print or inspect: `echo tsc` and `git diff -- vitest.config.ts` prove nothing. */
+// ponytail: denylist of first words, move to parsing the command position if agents find other ways around it
+const NOT_A_CHECK =
+  /^(?:echo|printf|cat|grep|rg|ls|which|type|command|man|head|tail|git)\b|\s--(?:version|help)\b/;
+
+/**
+ * Whether a shell command is a test, build, lint, or type check whose exit status reaches the
+ * agent. Quoted strings are dropped so a commit message cannot match. A check piped into another
+ * command without `set -o pipefail`, backgrounded, followed by `||`, or followed by `;` and something else reports the
+ * other command's status, so it does not count.
+ */
 export function isVerify(command: string, config: Config): boolean {
   const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
-  if (config.verify) return config.verify.some((p) => safeRegex(p)?.test(bare));
-  return VERIFY.some((re) => re.test(bare));
+  // Only a `set -o pipefail` statement turns the option on; the word in an echo or a comment does not.
+  const pipefail =
+    /(?:^|[;&\n])\s*set\s+-\w*o\s+pipefail\b/.test(bare) && !/\bset\s+\+o\s+pipefail\b/.test(bare);
+  const last =
+    bare
+      .split(/[;\n]/)
+      .map((s) => s.trim())
+      .findLast(Boolean) ?? "";
+  return last.split("&&").some((raw) => {
+    const part = raw.trim();
+    if (part.includes("||") || (!pipefail && part.includes("|"))) return false;
+    // A lone `&` backgrounds the check; `2>&1` and `&>` are redirections.
+    if (/(?<!>)&(?!>)/.test(part)) return false;
+    if (NOT_A_CHECK.test(part)) return false;
+    return config.verify
+      ? config.verify.some((p) => safeRegex(p)?.test(part))
+      : VERIFY.some((re) => re.test(part));
+  });
 }
 
-const IGNORE = /(^|\/)docs?\/|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock)$/i;
+const IGNORE = /(^|\/)docs?\/|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
 
-/** Files whose edits never need a passing check: docs, images, lockfiles, and anything in `config.ignore`. */
+/** Files whose edits never need a passing check: docs, images, lockfiles, logs, and anything in `config.ignore`. */
 export function isIgnored(path: string, config: Config): boolean {
   return IGNORE.test(path) || (config.ignore ?? []).some((p) => safeRegex(p)?.test(path));
 }
@@ -63,6 +89,9 @@ const SKIP =
 /** Built with a constructor so the escape byte never appears literally in a regex. */
 const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
 
+/** Text safe to store and print: command output can carry escape sequences that redraw the terminal. */
+export const plain = (text: string): string => text.replace(ANSI, "").replace(/\p{Cc}+/gu, " ");
+
 export const isTestFile = (path: string): boolean => TEST_PATH.test(path);
 
 export interface TestDamage {
@@ -90,14 +119,18 @@ export function testDamage(change: FileChange, cwd: string): TestDamage | null {
   return damage.removed || damage.skipped ? damage : null;
 }
 
+/** One output line can be megabytes long; the normalising regexes only ever see this much. */
+const TAIL_CHARS = 8000;
+
 /** Stable id for a failure: the command plus its output tail with timings and colors stripped. */
 export function fingerprint(command: string, output: string): string {
   const tail = output
     .split("\n")
     .slice(-30)
     .join("\n")
+    .slice(-TAIL_CHARS)
     .replace(ANSI, "")
-    .replace(/\d+(?:\.\d+)?\s*(?:ms|s|secs?|seconds?|m|mins?|minutes?)\b/g, "T")
+    .replace(/(?<!\d)\d+(?:\.\d+)?\s*(?:ms|s|secs?|seconds?|m|mins?|minutes?)\b/g, "T")
     .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\S*/g, "TS")
     .replace(/[ \t]+/g, " ")
     .trim();
