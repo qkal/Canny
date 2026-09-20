@@ -21,12 +21,13 @@ const NOT_A_CHECK = /^(?:echo|printf|cat|grep|rg|ls|which|type|command|man|head|
 /**
  * Whether a shell command is a test, build, lint, or type check whose exit status reaches the
  * agent. Quoted strings are dropped so a commit message cannot match. A check piped into another
- * command without `pipefail`, followed by `||`, or followed by `;` and something else reports the
+ * command without `set -o pipefail`, backgrounded, followed by `||`, or followed by `;` and something else reports the
  * other command's status, so it does not count.
  */
 export function isVerify(command, config) {
     const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
-    const pipefail = /\bpipefail\b/.test(bare);
+    // Only a `set -o pipefail` statement turns the option on; the word in an echo or a comment does not.
+    const pipefail = /(?:^|[;&\n])\s*set\s+-\w*o\s+pipefail\b/.test(bare) && !/\bset\s+\+o\s+pipefail\b/.test(bare);
     const last = bare
         .split(/[;\n]/)
         .map((s) => s.trim())
@@ -34,6 +35,9 @@ export function isVerify(command, config) {
     return last.split("&&").some((raw) => {
         const part = raw.trim();
         if (part.includes("||") || (!pipefail && part.includes("|")))
+            return false;
+        // A lone `&` backgrounds the check; `2>&1` and `&>` are redirections.
+        if (/(?<!>)&(?!>)/.test(part))
             return false;
         if (NOT_A_CHECK.test(part))
             return false;
