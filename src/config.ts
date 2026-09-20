@@ -9,6 +9,7 @@ export interface Config {
   /** Regexes for edited paths that never need verification. Adds to the built-in list. */
   ignore?: string[];
   /** Project rules for the Jev rule check. Replaces the CLAUDE.md and AGENTS.md extraction. */
+  // Replacing the extraction can silence rules, so this field waits for `canny trust` too.
   rules?: string[];
   /** Checks to turn off: "secrets", "test-removal", "repeat-failure". */
   allow?: string[];
@@ -23,7 +24,7 @@ export const home = (): string => process.env.CANNY_HOME ?? join(homedir(), ".ca
 export const off = (config: Config, check: string): boolean => (config.allow ?? []).includes(check);
 
 /** Fields that can only loosen the guard, so they wait for `canny trust`. The rest are safe to obey. */
-export const WEAKENING = ["verify", "ignore", "allow"] as const;
+export const WEAKENING = ["verify", "ignore", "rules", "allow"] as const;
 
 export interface Found {
   file: string;
@@ -41,13 +42,7 @@ export function findConfig(cwd: string): Found | null {
     const file = join(dir, ".canny.json");
     if (existsSync(file)) {
       const text = readText(file);
-      let config: Config = {};
-      try {
-        config = JSON.parse(text) as Config;
-      } catch {
-        config = {};
-      }
-      return { file, config, trusted: text !== "" && store()[file] === sha(text) };
+      return { file, config: parse(text), trusted: text !== "" && store()[file] === sha(text) };
     }
     const parent = dirname(dir);
     if (dir === stop || parent === dir) return null;
@@ -57,7 +52,8 @@ export function findConfig(cwd: string): Found | null {
 
 /**
  * A `.canny.json` lives in the workspace the agent is editing, so anything in it that turns a check
- * off is ignored until the user runs `canny trust`. Rules and `strict` only ever ask for more.
+ * off or replaces a check's input is ignored until the user runs `canny trust`. `strict` only ever
+ * asks for more.
  */
 export function loadConfig(cwd: string): Config {
   const found = findConfig(cwd);
@@ -80,6 +76,18 @@ const trustFile = (): string => join(home(), "trusted.json");
 function store(): Record<string, string> {
   try {
     return (JSON.parse(readFileSync(trustFile(), "utf8")) as Record<string, string>) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Anything but a JSON object — `null`, an array, a number, junk — is treated as no config at all. */
+function parse(text: string): Config {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Config)
+      : {};
   } catch {
     return {};
   }

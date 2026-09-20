@@ -189,6 +189,13 @@ function pick() {
     return { file, entries: read(file) };
 }
 function status() {
+    // Before the session lookup: a fresh project has no sessions yet but can already have a config.
+    const config = findConfig(process.cwd());
+    if (config && !config.trusted) {
+        const ignored = WEAKENING.filter((f) => config.config[f] !== undefined);
+        if (ignored.length)
+            console.log(`config    ${config.file} is untrusted, so ${ignored.join(", ")} ${ignored.length > 1 ? "are" : "is"} ignored; \`canny trust\` accepts it`);
+    }
     const picked = pick();
     if (!picked)
         return;
@@ -196,10 +203,7 @@ function status() {
     const s = summarize(entries);
     const stops = entries.filter((e) => e.type === "verdict" && e.phase === "stop");
     const jev = entries.filter((e) => e.type === "jev");
-    const config = findConfig(process.cwd());
     console.log(`session   ${basename(file)}`);
-    if (config && !config.trusted && WEAKENING.some((f) => config.config[f] !== undefined))
-        console.log(`config    ${config.file} is untrusted, so ${WEAKENING.join(", ")} are ignored; \`canny trust\` accepts it`);
     console.log(`events    ${entries.filter((e) => e.type === "event").length}`);
     console.log(`edited    ${s.codeFiles.length ? s.codeFiles.join(", ") : "nothing that needs a check"}`);
     console.log(`verified  ${s.verified ? `yes: \`${s.verified.command}\` passed after the last edit` : "no passing check since the last edit"}`);

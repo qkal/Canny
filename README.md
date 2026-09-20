@@ -180,13 +180,13 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 
 - `verify`: regexes for commands that count as a check. Replaces the built-in list of about eighty: pytest, vitest, jest, go test, cargo test, swift test, node --test, tsc, eslint, ruff, pre-commit, and so on. Quoted strings are stripped before matching, so a commit message that mentions pytest does not count.
 - `ignore`: regexes for edited paths that never need a check. Adds to docs, images, and lockfiles.
-- `rules`: the rules Jev is asked about. Replaces the automatic extraction of instruction-like bullets from `CLAUDE.md`, `AGENTS.md`, and `.claude/CLAUDE.md`, which keeps at most 24, strongest wording first.
+- `rules`: the rules Jev is asked about. Replaces the automatic extraction of instruction-like bullets from `CLAUDE.md`, `AGENTS.md`, and `.claude/CLAUDE.md`, which keeps at most 24, strongest wording first. Because it replaces that extraction, it waits for `canny trust`.
 - `allow`: checks to turn off: `secrets`, `test-removal`, `repeat-failure`.
 - `strict`: keep blocking Stop until a check passes.
 
-### The three fields that loosen the guard wait for `canny trust`
+### The four fields that loosen the guard wait for `canny trust`
 
-`.canny.json` lives in the repository the agent is editing. A repo you clone can ship one, and an agent that just got blocked can write one. So the three fields that can turn a check off — `verify`, `ignore`, `allow` — do nothing until you run `canny trust` in the project. `rules` and `strict` are read either way: they only ever ask for more.
+`.canny.json` lives in the repository the agent is editing. A repo you clone can ship one, and an agent that just got blocked can write one. So the four fields that can turn a check off or narrow what it looks at — `verify`, `ignore`, `rules`, `allow` — do nothing until you run `canny trust` in the project. `rules` is in that list because it replaces the `CLAUDE.md` extraction: one junk rule in an untrusted file would otherwise silence every rule you wrote. `strict` is read either way: it only ever asks for more.
 
 ```text
 canny trust     trusted /work/api/.canny.json: verify, allow now take effect

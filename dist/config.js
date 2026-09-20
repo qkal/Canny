@@ -7,7 +7,7 @@ export const home = () => process.env.CANNY_HOME ?? join(homedir(), ".canny");
 /** True when the user turned a check off through `allow`. */
 export const off = (config, check) => (config.allow ?? []).includes(check);
 /** Fields that can only loosen the guard, so they wait for `canny trust`. The rest are safe to obey. */
-export const WEAKENING = ["verify", "ignore", "allow"];
+export const WEAKENING = ["verify", "ignore", "rules", "allow"];
 /** The nearest `.canny.json` at or above `cwd`, stopping at the home directory. */
 export function findConfig(cwd) {
     let dir = cwd;
@@ -16,14 +16,7 @@ export function findConfig(cwd) {
         const file = join(dir, ".canny.json");
         if (existsSync(file)) {
             const text = readText(file);
-            let config = {};
-            try {
-                config = JSON.parse(text);
-            }
-            catch {
-                config = {};
-            }
-            return { file, config, trusted: text !== "" && store()[file] === sha(text) };
+            return { file, config: parse(text), trusted: text !== "" && store()[file] === sha(text) };
         }
         const parent = dirname(dir);
         if (dir === stop || parent === dir)
@@ -33,7 +26,8 @@ export function findConfig(cwd) {
 }
 /**
  * A `.canny.json` lives in the workspace the agent is editing, so anything in it that turns a check
- * off is ignored until the user runs `canny trust`. Rules and `strict` only ever ask for more.
+ * off or replaces a check's input is ignored until the user runs `canny trust`. `strict` only ever
+ * asks for more.
  */
 export function loadConfig(cwd) {
     const found = findConfig(cwd);
@@ -56,6 +50,18 @@ const trustFile = () => join(home(), "trusted.json");
 function store() {
     try {
         return JSON.parse(readFileSync(trustFile(), "utf8")) ?? {};
+    }
+    catch {
+        return {};
+    }
+}
+/** Anything but a JSON object — `null`, an array, a number, junk — is treated as no config at all. */
+function parse(text) {
+    try {
+        const value = JSON.parse(text);
+        return value !== null && typeof value === "object" && !Array.isArray(value)
+            ? value
+            : {};
     }
     catch {
         return {};
