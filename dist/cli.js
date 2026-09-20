@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { home, loadConfig } from "./config.js";
+import { findConfig, home, loadConfig, trust, WEAKENING } from "./config.js";
 import { normalize } from "./events.js";
 import { decideStop, handle, serialize } from "./hook.js";
 import { makeJudge } from "./jev.js";
@@ -39,6 +39,9 @@ switch (cmd) {
     case "remove":
         remove();
         break;
+    case "trust":
+        trustConfig();
+        break;
     default:
         console.log([
             "canny: a warden for AI coding agents",
@@ -49,6 +52,7 @@ switch (cmd) {
             "  canny sessions                               list recorded sessions",
             "  canny replay [session-file]                  re-derive every Stop verdict from the ledger",
             "  canny remove [--global]                      take Canny's hook entries out again",
+            "  canny trust                                  let this project's .canny.json turn checks off",
             "",
             `Sessions and the Jev cache live in ${home()}. Set TYPESAFE_API_KEY to enable Jev.`,
         ].join("\n"));
@@ -163,6 +167,19 @@ function remove() {
         if (existsSync(file))
             merge(file, {});
 }
+/** A project config can only turn checks off once the user has seen it and said so. */
+function trustConfig() {
+    const found = findConfig(process.cwd());
+    if (!found) {
+        console.log(`no .canny.json at or above ${process.cwd()}`);
+        return;
+    }
+    trust(found.file);
+    const fields = WEAKENING.filter((f) => found.config[f] !== undefined);
+    console.log(fields.length
+        ? `trusted ${found.file}: ${fields.join(", ")} now take effect`
+        : `trusted ${found.file}`);
+}
 function pick() {
     const file = target ?? listSessions()[0]?.file;
     if (!file) {
@@ -172,6 +189,13 @@ function pick() {
     return { file, entries: read(file) };
 }
 function status() {
+    // Before the session lookup: a fresh project has no sessions yet but can already have a config.
+    const config = findConfig(process.cwd());
+    if (config && !config.trusted) {
+        const ignored = WEAKENING.filter((f) => config.config[f] !== undefined);
+        if (ignored.length)
+            console.log(`config    ${config.file} is untrusted, so ${ignored.join(", ")} ${ignored.length > 1 ? "are" : "is"} ignored; \`canny trust\` accepts it`);
+    }
     const picked = pick();
     if (!picked)
         return;
