@@ -204,6 +204,9 @@ describe("pre checks", () => {
         tool_input: { file_path: join(cwd, name), content: "AWS_KEY=AKIAIOSFODNN7EXAMPLE" },
       });
     expect(await write(".env.local")).toEqual({ kind: "allow" });
+    expect(await bash("cd sub && echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local")).toMatchObject({
+      kind: "deny",
+    });
     expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE >> .env.local")).toEqual({
       kind: "allow",
     });
