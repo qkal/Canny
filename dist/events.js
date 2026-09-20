@@ -189,6 +189,9 @@ const shellChanges = (cmd) => {
     const ops = fileOps(cmd);
     return [...writeTargets(cmd), ...ops.written, ...ops.removed, ...ops.moved.map(([from]) => from)];
 };
+/** `echo` or `printf` at command position: after env assignments, `then`/`do`/`else`, `(`, a pipe, or by path. */
+// ponytail: text written by an interpreter (`python -c`, `node -e`) is not read; add when it shows up in ledgers
+const PRINTS = /(?:^|[|(]|\b(?:then|do|else)\s)\s*(?:\w+=\S*\s+)*(?:[^\s|(]*\/)?(?:echo|printf)\b/;
 /**
  * Literal text a command puts into files, with the files it goes to: heredoc bodies and `echo` or
  * `printf` statements that redirect or pipe into `tee`. A key in a `curl` header whose response is
@@ -203,7 +206,7 @@ export function shellWrites(cmd) {
         out.push({ text: m[0].slice(opener.length), targets: writeTargets(head) });
     }
     for (const statement of withoutHeredocs(cmd).split(/&&|\|\||[;\n]/))
-        if (/^\s*(?:echo|printf)\b/.test(statement))
+        if (PRINTS.test(statement))
             out.push({ text: statement, targets: writeTargets(statement) });
     return out.filter((w) => w.targets.length);
 }

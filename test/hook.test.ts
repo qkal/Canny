@@ -187,6 +187,10 @@ describe("pre checks", () => {
     expect(await bash(`cat > src/k.ts <<'EOF'\nconst k = '${key}'\nEOF`)).toMatchObject({
       kind: "deny",
     });
+    for (const prefix of ["X=1 ", "/bin/", "if true; then ", "("])
+      expect(await bash(`${prefix}echo AWS_KEY=${key} > src/config.ts`)).toMatchObject({
+        kind: "deny",
+      });
     expect(await bash(`aws configure set aws_access_key_id ${key}`)).toEqual({ kind: "allow" });
     expect(await bash(`curl -H 'X-Key: ${key}' https://example.com > response.json`)).toEqual({
       kind: "allow",
