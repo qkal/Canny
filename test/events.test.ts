@@ -185,6 +185,10 @@ describe("writeTargets", () => {
     ["git checkout main", { written: [], removed: [], moved: [] }],
     ["git restore --staged src/a.ts", { written: [], removed: [], moved: [] }],
     ["git restore src/a.ts", { written: ["src/a.ts"], removed: [], moved: [] }],
+    ["git restore --source HEAD~1 src/a.ts", { written: ["src/a.ts"], removed: [], moved: [] }],
+    ["git restore -s main src/a.ts", { written: ["src/a.ts"], removed: [], moved: [] }],
+    ["git rm --dry-run test/a.test.ts", { written: [], removed: [], moved: [] }],
+    ["git rm -n test/a.test.ts", { written: [], removed: [], moved: [] }],
     ["echo rm a.ts", { written: [], removed: [], moved: [] }],
   ])("fileOps %j", (cmd, ops) => expect(fileOps(cmd)).toEqual(ops));
 

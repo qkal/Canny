@@ -152,7 +152,7 @@ const HEREDOC = /<<-?\s*(["']?)([^\s"'<>|;&]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/
 const withoutHeredocs = (cmd) => cmd.replace(HEREDOC, (m) => m.split("\n", 1)[0]);
 const unquote = (t) => t.replace(/^["']|["']$/g, "");
 /** Files a shell command copies, moves, deletes, or restores. No Write or Edit hook fires for these. */
-// ponytail: reads rm, cp, mv and git at command position, after `then`/`do`/`else`, or by path; `find -exec rm` and `xargs rm` are not seen
+// ponytail: reads rm, cp, mv and git at command position, after `then`/`do`/`else`, or by path; `find -exec rm`, `xargs rm`, and a second heredoc on one command line are not seen
 export function fileOps(cmd) {
     const ops = { written: [], removed: [], moved: [] };
     const found = withoutHeredocs(cmd).matchAll(/(?:^|[;&|(\n]|\b(?:then|do|else)\s)\s*(?:sudo\s+)?(?:[^\s;&|]*\/)?(rm|cp|mv|git\s+(?:rm|mv|checkout|restore))\s+([^;&|\n]*)/g);
@@ -165,7 +165,10 @@ export function fileOps(cmd) {
         const dashes = tokens.indexOf("--");
         const paths = (op === "git checkout"
             ? tokens.slice(dashes < 0 ? tokens.length : dashes + 1)
-            : tokens.filter((t) => !t.startsWith("-"))).map(unquote);
+            : tokens.filter((t, i) => !t.startsWith("-") && !/^(--source|-s)$/.test(tokens[i - 1] ?? ""))).map(unquote);
+        // `git rm -n` only prints what it would remove.
+        if (op === "git rm" && tokens.some((t) => t === "-n" || t === "--dry-run"))
+            continue;
         if (op === "rm" || op === "git rm")
             ops.removed.push(...paths);
         else if (op === "git checkout")

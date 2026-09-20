@@ -209,7 +209,7 @@ export interface FileOps {
 }
 
 /** Files a shell command copies, moves, deletes, or restores. No Write or Edit hook fires for these. */
-// ponytail: reads rm, cp, mv and git at command position, after `then`/`do`/`else`, or by path; `find -exec rm` and `xargs rm` are not seen
+// ponytail: reads rm, cp, mv and git at command position, after `then`/`do`/`else`, or by path; `find -exec rm`, `xargs rm`, and a second heredoc on one command line are not seen
 export function fileOps(cmd: string): FileOps {
   const ops: FileOps = { written: [], removed: [], moved: [] };
   const found = withoutHeredocs(cmd).matchAll(
@@ -224,8 +224,12 @@ export function fileOps(cmd: string): FileOps {
     const paths = (
       op === "git checkout"
         ? tokens.slice(dashes < 0 ? tokens.length : dashes + 1)
-        : tokens.filter((t) => !t.startsWith("-"))
+        : tokens.filter(
+            (t, i) => !t.startsWith("-") && !/^(--source|-s)$/.test(tokens[i - 1] ?? ""),
+          )
     ).map(unquote);
+    // `git rm -n` only prints what it would remove.
+    if (op === "git rm" && tokens.some((t) => t === "-n" || t === "--dry-run")) continue;
     if (op === "rm" || op === "git rm") ops.removed.push(...paths);
     else if (op === "git checkout") ops.written.push(...paths);
     else if (op === "git restore") {
