@@ -1,4 +1,5 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
+import { basename, join } from "node:path";
 
 export type Agent = "claude" | "codex";
 export type Phase = "pre" | "post" | "stop" | "other";
@@ -192,7 +193,8 @@ function command(input: Obj, cmd: string, phase: Phase, agent: Agent): Event {
 
 const NOT_A_FILE = /^(&\d*|\/dev\/(null|stdout|stderr|tty)|-)$/;
 
-const HEREDOC = /<<-?\s*(["']?)([^\s"'<>|;&]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g;
+/** The delimiter may be bare, quoted, or escaped as in `<<\EOF`. */
+const HEREDOC = /<<-?\s*(?:\\|(["']?))([^\s"'<>|;&\\]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g;
 
 /** Heredoc bodies hold text, not shell: `> quote` in markdown, `rm x` in a script being written. */
 const withoutHeredocs = (cmd: string): string => cmd.replace(HEREDOC, (m) => m.split("\n", 1)[0]!);
@@ -228,8 +230,8 @@ export function fileOps(cmd: string): FileOps {
             (t, i) => !t.startsWith("-") && !/^(--source|-s)$/.test(tokens[i - 1] ?? ""),
           )
     ).map(unquote);
-    // `git rm -n` only prints what it would remove.
-    if (op === "git rm" && tokens.some((t) => t === "-n" || t === "--dry-run")) continue;
+    // `git rm -n` and `git mv -n` only print what they would do.
+    if (/^git (rm|mv)$/.test(op) && tokens.some((t) => t === "-n" || t === "--dry-run")) continue;
     if (op === "rm" || op === "git rm") ops.removed.push(...paths);
     else if (op === "git checkout") ops.written.push(...paths);
     else if (op === "git restore") {
@@ -237,7 +239,11 @@ export function fileOps(cmd: string): FileOps {
     } else if (paths.length >= 2) {
       const to = paths.at(-1)!;
       ops.written.push(to);
-      if (op !== "cp") for (const from of paths.slice(0, -1)) ops.moved.push([from, to]);
+      // Into a directory the file keeps its name: `mv test/a.test.ts src/` lands at `src/a.test.ts`.
+      const intoDir = to.endsWith("/") || paths.length > 2;
+      if (op !== "cp")
+        for (const from of paths.slice(0, -1))
+          ops.moved.push([from, intoDir ? join(to, basename(from)) : to]);
     }
   }
   return ops;

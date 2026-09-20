@@ -191,6 +191,9 @@ describe("pre checks", () => {
       expect(await bash(`${prefix}echo AWS_KEY=${key} > src/config.ts`)).toMatchObject({
         kind: "deny",
       });
+    expect(await bash(`cat > src/k.ts <<\\EOF\nconst k = '${key}'\nEOF`)).toMatchObject({
+      kind: "deny",
+    });
     expect(await bash(`aws configure set aws_access_key_id ${key}`)).toEqual({ kind: "allow" });
     expect(await bash(`curl -H 'X-Key: ${key}' https://example.com > response.json`)).toEqual({
       kind: "allow",
@@ -233,6 +236,7 @@ describe("pre checks", () => {
     ["cd web && git rm src/a.spec.ts", "ask"],
     ["mv test/a.test.ts /tmp/a.bak", "ask"],
     ["mv test/a.test.ts test/b.test.ts", "allow"],
+    ["mv test/a.test.ts src/", "allow"],
     ["if true; then rm test/a.test.ts; fi", "ask"],
     ["/bin/rm test/a.test.ts", "ask"],
     ["rm src/a.ts dist/a.js", "allow"],

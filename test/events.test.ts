@@ -172,6 +172,7 @@ describe("writeTargets", () => {
     ["node -e 'if (a > b) process.exit(1)'", []],
     ["cat > notes.md <<'EOF'\n> a quote\nif (a > b)\nEOF", ["notes.md"]],
     ["cat > notes.md <<'END-JSON'\n> a quote\nEND-JSON", ["notes.md"]],
+    ["cat > notes.md <<\\EOF\n> a quote\nEOF", ["notes.md"]],
     ["printf 'code' | tee \"src/new.ts\"", ["src/new.ts"]],
     ["printf 'code' | tee -a 'src/new.ts'", ["src/new.ts"]],
     ["echo x | tee -a src/a.ts src/b.ts > /dev/null", ["src/a.ts", "src/b.ts"]],
@@ -189,6 +190,11 @@ describe("writeTargets", () => {
     ["git restore -s main src/a.ts", { written: ["src/a.ts"], removed: [], moved: [] }],
     ["git rm --dry-run test/a.test.ts", { written: [], removed: [], moved: [] }],
     ["git rm -n test/a.test.ts", { written: [], removed: [], moved: [] }],
+    ["git mv --dry-run test/a.test.ts src/a.ts", { written: [], removed: [], moved: [] }],
+    [
+      "mv test/a.test.ts src/",
+      { written: ["src/"], removed: [], moved: [["test/a.test.ts", "src/a.test.ts"]] },
+    ],
     ["echo rm a.ts", { written: [], removed: [], moved: [] }],
   ])("fileOps %j", (cmd, ops) => expect(fileOps(cmd)).toEqual(ops));
 
