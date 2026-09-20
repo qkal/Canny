@@ -174,6 +174,7 @@ describe("writeTargets", () => {
     ["cat > notes.md <<'END-JSON'\n> a quote\nEND-JSON", ["notes.md"]],
     ["printf 'code' | tee \"src/new.ts\"", ["src/new.ts"]],
     ["printf 'code' | tee -a 'src/new.ts'", ["src/new.ts"]],
+    ["echo x | tee -a src/a.ts src/b.ts > /dev/null", ["src/a.ts", "src/b.ts"]],
   ])("%j -> %j", (cmd, files) => expect(writeTargets(cmd)).toEqual(files));
 
   it.each([

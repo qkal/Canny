@@ -245,9 +245,9 @@ const shellChanges = (cmd: string): string[] => {
   return [...writeTargets(cmd), ...ops.written, ...ops.removed, ...ops.moved.map(([from]) => from)];
 };
 
-/** `echo` or `printf` at command position: after env assignments, `then`/`do`/`else`, `(`, a pipe, or by path. */
+/** `echo` or `printf` as a word anywhere in the statement, so wrappers such as `command`, `env`, and `then` need no list. */
 // ponytail: text written by an interpreter (`python -c`, `node -e`) is not read; add when it shows up in ledgers
-const PRINTS = /(?:^|[|(]|\b(?:then|do|else)\s)\s*(?:\w+=\S*\s+)*(?:[^\s|(]*\/)?(?:echo|printf)\b/;
+const PRINTS = /(?:^|[\s|(/])(?:echo|printf)\s/;
 
 /**
  * Literal text a command puts into files, with the files it goes to: heredoc bodies and `echo` or
@@ -281,8 +281,8 @@ export function writeTargets(cmd: string): string[] {
   );
   for (const m of shell.matchAll(/(?:^|[\s;&|(])\d?>{1,2}\s*("[^"]*"|'[^']*'|[^\s;&|)<>]+)/g))
     out.push(m[1]!);
-  for (const m of shell.matchAll(/\btee\s+(?:-[ai]+\s+)*([^\s;&|)<>-][^\s;&|)<>]*)/g))
-    out.push(m[1]!);
+  for (const m of shell.matchAll(/\btee\s+([^;&|)<>]+)/g))
+    for (const t of m[1]!.match(/"[^"]*"|'[^']*'|\S+/g) ?? []) if (!t.startsWith("-")) out.push(t);
   for (const m of cmd.matchAll(/\b(?:sed\s+-i\S*|perl\s+-p?i\S*)\s+([^;&|]+)/g)) {
     const tokens = m[1]!.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
     let skipNext = false;

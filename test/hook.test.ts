@@ -187,7 +187,7 @@ describe("pre checks", () => {
     expect(await bash(`cat > src/k.ts <<'EOF'\nconst k = '${key}'\nEOF`)).toMatchObject({
       kind: "deny",
     });
-    for (const prefix of ["X=1 ", "/bin/", "if true; then ", "("])
+    for (const prefix of ["X=1 ", "/bin/", "if true; then ", "(", "command ", "env X=1 "])
       expect(await bash(`${prefix}echo AWS_KEY=${key} > src/config.ts`)).toMatchObject({
         kind: "deny",
       });
@@ -214,6 +214,12 @@ describe("pre checks", () => {
     expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE >> .env.local")).toEqual({
       kind: "allow",
     });
+    expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE | tee .env.local src/k.ts")).toMatchObject(
+      {
+        kind: "deny",
+        message: expect.stringContaining("src/k.ts"),
+      },
+    );
     expect(await write(".env")).toMatchObject({ kind: "deny" });
     writeFileSync(join(cwd, ".gitignore"), ".env.local\n.env.prod\n");
     symlinkSync(join(cwd, "src-config.ts"), join(cwd, ".env.prod"));
