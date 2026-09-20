@@ -185,11 +185,69 @@ function command(input: Obj, cmd: string, phase: Phase, agent: Agent): Event {
   const fromDiff = Array.isArray(diff.changedFiles)
     ? diff.changedFiles.filter((f): f is string => typeof f === "string")
     : [];
-  const changedFiles = [...new Set([...fromDiff, ...writeTargets(cmd)])];
+  const ops = fileOps(cmd);
+  const changedFiles = [
+    ...new Set([
+      ...fromDiff,
+      ...writeTargets(cmd),
+      ...ops.written,
+      ...ops.removed,
+      ...ops.moved.map(([from]) => from),
+    ]),
+  ];
   return { ...base, exitCode, output, changedFiles };
 }
 
 const NOT_A_FILE = /^(&\d*|\/dev\/(null|stdout|stderr|tty)|-)$/;
+
+/** Heredoc bodies hold text, not shell: `> quote` in markdown, `rm x` in a script being written. */
+const withoutHeredocs = (cmd: string): string =>
+  cmd.replace(
+    /<<-?\s*(["']?)([^\s"'<>|;&]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g,
+    (m) => m.split("\n", 1)[0]!,
+  );
+
+const unquote = (t: string): string => t.replace(/^["']|["']$/g, "");
+
+export interface FileOps {
+  /** Destinations of `cp` and `mv`, and files `git checkout --` or `git restore` overwrite. */
+  written: string[];
+  /** Arguments of `rm` and `git rm`. */
+  removed: string[];
+  /** Source and destination of each `mv` and `git mv`. */
+  moved: [from: string, to: string][];
+}
+
+/** Files a shell command copies, moves, deletes, or restores. No Write or Edit hook fires for these. */
+// ponytail: reads rm, cp, mv and git at command position only; `find -exec rm` and `xargs rm` are not seen
+export function fileOps(cmd: string): FileOps {
+  const ops: FileOps = { written: [], removed: [], moved: [] };
+  const found = withoutHeredocs(cmd).matchAll(
+    /(?:^|[;&|(\n])\s*(?:sudo\s+)?(rm|cp|mv|git\s+(?:rm|mv|checkout|restore))\s+([^;&|\n]*)/g,
+  );
+  for (const m of found) {
+    const op = m[1]!.replace(/\s+/g, " ");
+    let tokens: string[] = m[2]!.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+    const redirect = tokens.findIndex((t) => /^\d?[<>]/.test(t));
+    if (redirect >= 0) tokens = tokens.slice(0, redirect);
+    const dashes = tokens.indexOf("--");
+    const paths = (
+      op === "git checkout"
+        ? tokens.slice(dashes < 0 ? tokens.length : dashes + 1)
+        : tokens.filter((t) => !t.startsWith("-"))
+    ).map(unquote);
+    if (op === "rm" || op === "git rm") ops.removed.push(...paths);
+    else if (op === "git checkout") ops.written.push(...paths);
+    else if (op === "git restore") {
+      if (!tokens.includes("--staged") || tokens.includes("--worktree")) ops.written.push(...paths);
+    } else if (paths.length >= 2) {
+      const to = paths.at(-1)!;
+      ops.written.push(to);
+      if (op !== "cp") for (const from of paths.slice(0, -1)) ops.moved.push([from, to]);
+    }
+  }
+  return ops;
+}
 
 /**
  * Files a shell command writes by redirection or in-place edit. Agents write files this way when
@@ -197,16 +255,12 @@ const NOT_A_FILE = /^(&\d*|\/dev\/(null|stdout|stderr|tty)|-)$/;
  */
 export function writeTargets(cmd: string): string[] {
   const out: string[] = [];
-  // Heredoc bodies and quoted strings hold text, not redirections: `> quote` in markdown, `a > b`
-  // in a commit message. A quoted string right after `>` or `tee` is a file name and stays.
-  const shell = cmd
-    .replace(
-      /<<-?\s*(["']?)([^\s"'<>|;&]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g,
-      (m) => m.split("\n", 1)[0]!,
-    )
-    .replace(/(>\s*|\btee\s+(?:-[ai]+\s+)*)?("[^"]*"|'[^']*')/g, (m, keep?: string) =>
-      keep ? m : "",
-    );
+  // Quoted strings hold text, not redirections: `a > b` in a commit message. A quoted string right
+  // after `>` or `tee` is a file name and stays.
+  const shell = withoutHeredocs(cmd).replace(
+    /(>\s*|\btee\s+(?:-[ai]+\s+)*)?("[^"]*"|'[^']*')/g,
+    (m, keep?: string) => (keep ? m : ""),
+  );
   for (const m of shell.matchAll(/(?:^|[\s;&|(])\d?>{1,2}\s*("[^"]*"|'[^']*'|[^\s;&|)<>]+)/g))
     out.push(m[1]!);
   for (const m of shell.matchAll(/\btee\s+(?:-[ai]+\s+)*([^\s;&|)<>-][^\s;&|)<>]*)/g))
@@ -223,7 +277,7 @@ export function writeTargets(cmd: string): string[] {
       else if (!t.startsWith("-") && !/^["']/.test(t) && !/^s[/|#]/.test(t)) out.push(t);
     }
   }
-  return out.map((t) => t.replace(/^["']|["']$/g, "")).filter((t) => t && !NOT_A_FILE.test(t));
+  return out.map(unquote).filter((t) => t && !NOT_A_FILE.test(t));
 }
 
 /** Claude Code's PostToolUseFailure error starts with `Exit code N` when the command ran at all. */

@@ -2,7 +2,14 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { detectAgent, normalize, parsePatch, transcriptExit, writeTargets } from "../src/events.js";
+import {
+  detectAgent,
+  fileOps,
+  normalize,
+  parsePatch,
+  transcriptExit,
+  writeTargets,
+} from "../src/events.js";
 
 const base = { session_id: "s1", cwd: "/repo" };
 
@@ -168,6 +175,17 @@ describe("writeTargets", () => {
     ["printf 'code' | tee \"src/new.ts\"", ["src/new.ts"]],
     ["printf 'code' | tee -a 'src/new.ts'", ["src/new.ts"]],
   ])("%j -> %j", (cmd, files) => expect(writeTargets(cmd)).toEqual(files));
+
+  it.each([
+    ["cp src/a.ts src/b.ts", { written: ["src/b.ts"], removed: [], moved: [] }],
+    ["mv -f a.ts 'b c.ts'", { written: ["b c.ts"], removed: [], moved: [["a.ts", "b c.ts"]] }],
+    ["rm -f a.ts b.ts 2>/dev/null; ls", { written: [], removed: ["a.ts", "b.ts"], moved: [] }],
+    ["git checkout -- src/a.ts", { written: ["src/a.ts"], removed: [], moved: [] }],
+    ["git checkout main", { written: [], removed: [], moved: [] }],
+    ["git restore --staged src/a.ts", { written: [], removed: [], moved: [] }],
+    ["git restore src/a.ts", { written: ["src/a.ts"], removed: [], moved: [] }],
+    ["echo rm a.ts", { written: [], removed: [], moved: [] }],
+  ])("fileOps %j", (cmd, ops) => expect(fileOps(cmd)).toEqual(ops));
 
   it("adds shell write targets to a Bash result's changed files", () => {
     const ctx = normalize({

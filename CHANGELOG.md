@@ -20,6 +20,11 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- The secret check reads shell commands that write a file, so `echo "key = 'sk-…'" > src/config.ts` is denied like the same `Write` would be. A command that only uses a key, with no file written, is left alone.
+- `rm`, `git rm`, and `mv` of a test file or test directory get the same ask (deny on Codex) as deleting it through an edit. Moving a test to another test path is not removal.
+- `cp`, `mv`, `rm`, `git rm`, `git checkout -- file`, and `git restore` count as code changes in the ledger, so the done-gate sees them. Changes under `node_modules`, `.venv`, `__pycache__`, `coverage`, `.cache`, and temp files outside the project do not.
+- Writing a key into a `.env` file that git ignores is allowed; that is where the deny message sends the agent. A `.env` that is not ignored, and `.env.example`-style templates, are still denied.
+
 - A check whose exit status never reaches the agent no longer counts as passing: `pnpm test 2>&1 | tail -20` without `pipefail`, `pnpm test || true`, and `pnpm test; echo done` all report another command's status. Commands that only print or inspect (`echo tsc`, `tsc --version`, `git diff -- vitest.config.ts`) do not count either. The block message says so.
 - `>` inside a quoted string or a heredoc body is no longer read as a file write, so `git commit -m "a > b"` does not make a session with no edits fail the done-gate. `.log` files do not count as code.
 - One very long line of digits in command output stalled the hook past its timeout (41 s for 200 KB), which lost the ledger entry. The failure fingerprint now reads at most the last 8000 characters.

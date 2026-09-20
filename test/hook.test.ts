@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -139,6 +140,18 @@ describe("stop gate", () => {
   });
 });
 
+describe("shell file operations in the ledger", () => {
+  it.each([
+    ["rm src/a.ts", "block"],
+    ["cp src/a.ts src/b.ts", "block"],
+    ["git checkout -- src/a.ts", "block"],
+    ["rm -rf node_modules /tmp/canny-scratch.json", "allow"],
+  ])("%s then stop -> %s", async (command, kind) => {
+    await ran(command);
+    expect((await stop()).kind).toBe(kind);
+  });
+});
+
 describe("pre checks", () => {
   it("denies writing a secret unless allowed", async () => {
     const input = {
@@ -151,6 +164,55 @@ describe("pre checks", () => {
       message: expect.stringContaining("AWS access key"),
     });
     expect(await run(input, offline, { allow: ["secrets"] })).toEqual({ kind: "allow" });
+  });
+
+  const bash = (command: string, config: Config = {}) =>
+    run(
+      { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
+      offline,
+      config,
+    );
+
+  it("denies a shell command that writes a secret into a file, but not one that only uses it", async () => {
+    const key = "AKIAIOSFODNN7EXAMPLE";
+    expect(await bash(`echo "const k = '${key}'" > src/k.ts`)).toMatchObject({
+      kind: "deny",
+      message: expect.stringContaining("src/k.ts"),
+    });
+    expect(await bash(`aws configure set aws_access_key_id ${key}`)).toEqual({ kind: "allow" });
+    expect(await bash(`echo ${key} > src/k.ts`, { allow: ["secrets"] })).toEqual({ kind: "allow" });
+  });
+
+  it("lets a key into an env file only when git ignores that file", async () => {
+    execFileSync("git", ["init", "-q"], { cwd });
+    writeFileSync(join(cwd, ".gitignore"), ".env.local\n");
+    const write = (name: string) =>
+      run({
+        hook_event_name: "PreToolUse",
+        tool_name: "Write",
+        tool_input: { file_path: join(cwd, name), content: "AWS_KEY=AKIAIOSFODNN7EXAMPLE" },
+      });
+    expect(await write(".env.local")).toEqual({ kind: "allow" });
+    expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE >> .env.local")).toEqual({
+      kind: "allow",
+    });
+    expect(await write(".env")).toMatchObject({ kind: "deny" });
+    expect(await write(".env.example")).toMatchObject({ kind: "deny" });
+  });
+
+  it.each([
+    ["rm test/a.test.ts", "ask"],
+    ["rm -rf tests", "ask"],
+    ["cd web && git rm src/a.spec.ts", "ask"],
+    ["mv test/a.test.ts /tmp/a.bak", "ask"],
+    ["mv test/a.test.ts test/b.test.ts", "allow"],
+    ["rm src/a.ts dist/a.js", "allow"],
+    ['git commit -m "rm test/a.test.ts"', "allow"],
+    ["cat > cleanup.sh <<'EOF'\nrm test/a.test.ts\nEOF", "allow"],
+  ])("%s -> %s", async (command, kind) => expect((await bash(command)).kind).toBe(kind));
+
+  it("leaves shell test removal alone when test-removal is off", async () => {
+    expect(await bash("rm test/a.test.ts", { allow: ["test-removal"] })).toEqual({ kind: "allow" });
   });
 
   it("asks before a test is removed, and Codex gets a deny", async () => {

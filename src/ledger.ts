@@ -7,7 +7,7 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { fingerprint, isIgnored, isVerify, plain, sha } from "./checks.js";
+import { fingerprint, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
 import { home, type Config } from "./config.js";
 import type { Agent, Event, Phase } from "./events.js";
 import type { JevLog } from "./jev.js";
@@ -47,12 +47,16 @@ export const rel = (cwd: string, p: string): string =>
  * through `plain`, because the ledger is printed to the user's terminal and into agent messages.
  */
 export function toFact(event: Event, cwd: string, config: Config): Fact | null {
-  const code = (paths: string[]): string[] => paths.filter((p) => !isIgnored(p, config));
+  const code = (paths: string[]): string[] =>
+    paths
+      .filter((p) => !isScratch(p, cwd))
+      .map((p) => rel(cwd, p))
+      .filter((p) => !isIgnored(p, config));
   switch (event.kind) {
     case "edit": {
       const files = event.changes.filter((c) => !c.deleted).map((c) => rel(cwd, c.path));
       const deleted = event.changes.filter((c) => c.deleted).map((c) => rel(cwd, c.path));
-      return { kind: "edit", files, deleted, code: code([...files, ...deleted]) };
+      return { kind: "edit", files, deleted, code: code(event.changes.map((c) => c.path)) };
     }
     case "command": {
       const lines = event.output.split("\n").filter((l) => l.trim());
@@ -63,7 +67,7 @@ export function toFact(event: Event, cwd: string, config: Config): Fact | null {
         verify: isVerify(event.command, config),
         fingerprint: fingerprint(event.command, event.output),
         summary: plain(lines.at(-1) ?? "").slice(0, 200),
-        code: code(event.changedFiles.map((p) => rel(cwd, p))),
+        code: code(event.changedFiles),
       };
     }
     case "stop":
