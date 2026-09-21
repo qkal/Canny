@@ -104,7 +104,8 @@ export function merge(file, ours) {
     const mode = existsSync(target) ? statSync(target).mode : undefined;
     const tmp = `${target}.canny-${process.pid}.tmp`;
     try {
-        writeFileSync(tmp, JSON.stringify(existing, null, 2) + "\n", { mode });
+        // Exclusive: a path already there, such as a planted symlink, is refused and never written through.
+        writeFileSync(tmp, JSON.stringify(existing, null, 2) + "\n", { mode, flag: "wx" });
         renameSync(tmp, target);
     }
     catch (e) {

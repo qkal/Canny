@@ -136,6 +136,17 @@ describe("merge", () => {
     expect(readFileSync(file, "utf8")).toBe(text);
   });
 
+  it("does not write through a symlink planted at its temp path", () => {
+    merge(file, ours);
+    const before = readFileSync(file, "utf8");
+    const victim = join(dir, "victim.txt");
+    writeFileSync(victim, "untouched");
+    symlinkSync(victim, `${file}.canny-${process.pid}.tmp`);
+    expect(() => merge(file, {})).toThrow(/EEXIST/);
+    expect(readFileSync(victim, "utf8")).toBe("untouched");
+    expect(readFileSync(file, "utf8")).toBe(before);
+  });
+
   it("writes to where a dangling symlink points, and keeps the link", () => {
     const real = join(dir, "not-yet", "settings.json");
     file = join(dir, "settings.json");
