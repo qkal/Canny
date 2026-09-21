@@ -7,7 +7,7 @@ import {
   type TestDamage,
 } from "./checks.js";
 import { off, type Config } from "./config.js";
-import { fileOps, shellWrites, type Ctx, type FileChange } from "./events.js";
+import { fileOps, shellEdits, shellWrites, type Ctx, type FileChange } from "./events.js";
 import { NO, YES, noul, type Judge } from "./jev.js";
 import { append, read, rel, summarize, toFact, type Fact, type Summary } from "./ledger.js";
 import { loadRules } from "./rules.js";
@@ -88,6 +88,11 @@ function pre(ctx: Ctx, deps: Deps): Decision {
         kind: "ask",
         message: `Canny: this command removes ${list(gone.map((p) => rel(cwd, p)))} from the tests. ${TESTS_STAY}`,
       });
+    for (const c of shellEdits(event.command)) {
+      const damage = testDamage(c, cwd);
+      if (damage)
+        return record(ctx, deps, { kind: "ask", message: describe(ctx, c, damage, "command") });
+    }
   }
   if (!off(deps.config, "repeat-failure")) {
     const command = plain(event.command);
@@ -117,7 +122,10 @@ async function post(ctx: Ctx, deps: Deps): Promise<Decision> {
           message: `Canny: \`${short(fact.command)}\` has now failed ${n} times with the same output. Repeating it will not help; change the approach.`,
         });
     }
-    return { kind: "allow" };
+    // Text the shell wrote is held to the project rules like any other edit.
+    return event.kind === "command"
+      ? ruleCheck(ctx, deps, shellEdits(event.command))
+      : { kind: "allow" };
   }
   if (event.kind === "edit") return ruleCheck(ctx, deps, event.changes);
   return { kind: "allow" };
@@ -125,7 +133,7 @@ async function post(ctx: Ctx, deps: Deps): Promise<Decision> {
 
 /** One Noul per project rule over each change, all changes in parallel. A confident yes becomes a note. */
 async function ruleCheck(ctx: Ctx, deps: Deps, changes: FileChange[]): Promise<Decision> {
-  const rules = loadRules(ctx.cwd, deps.config);
+  const rules = changes.length ? loadRules(ctx.cwd, deps.config) : null;
   if (!rules) return { kind: "allow" };
   const questions = Object.fromEntries(
     rules.rules.map((_, i) => [
@@ -204,7 +212,7 @@ function blockReason(s: Summary, config: Config): string {
   return `Canny: ${list(s.codeFiles)} changed, but no check has passed since the last edit.${last} Run the project's checks and fix what fails before finishing.${counts}${tail}`;
 }
 
-function describe(ctx: Ctx, c: FileChange, d: TestDamage): string {
+function describe(ctx: Ctx, c: FileChange, d: TestDamage, by = "edit"): string {
   const file = rel(ctx.cwd, c.path);
   const what = d.deleted
     ? `deletes the test file ${file}`
@@ -218,7 +226,7 @@ function describe(ctx: Ctx, c: FileChange, d: TestDamage): string {
       ]
         .filter(Boolean)
         .join(" and ");
-  return `Canny: this edit ${what}. ${TESTS_STAY}`;
+  return `Canny: this ${by} ${what}. ${TESTS_STAY}`;
 }
 
 const TESTS_STAY =

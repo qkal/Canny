@@ -281,21 +281,39 @@ const shellChanges = (cmd: string): string[] => {
 // ponytail: text written by an interpreter (`python -c`, `node -e`) is not read; add when it shows up in ledgers
 const PRINTS = /(?:^|[\s|(/])(?:echo|printf)\s/;
 
+/** Split at `;`, `&&`, `||`, and newlines, but not inside quotes: written code is full of `;`. */
+function statements(cmd: string): string[] {
+  const out = [""];
+  cmd.split(/("[^"]*"|'[^']*')/).forEach((part, i) => {
+    const pieces = i % 2 ? [part] : part.split(/&&|\|\||[;\n]/);
+    out.push(out.pop()! + pieces[0]!, ...pieces.slice(1));
+  });
+  return out;
+}
+
+interface ShellWrite {
+  text: string;
+  /** The part of the command that holds the redirect. */
+  head: string;
+  targets: string[];
+}
+
 /**
  * Literal text a command puts into files, with the files it goes to: heredoc bodies and `echo` or
  * `printf` statements that redirect or pipe into `tee`. A key in a `curl` header whose response is
  * saved is used, not written, so it is not part of this.
  */
-export function shellWrites(cmd: string): { text: string; targets: string[] }[] {
-  const out: { text: string; targets: string[] }[] = [];
+export function shellWrites(cmd: string): ShellWrite[] {
+  const out: ShellWrite[] = [];
   for (const m of cmd.matchAll(HEREDOC)) {
     // The match starts at `<<`; the redirect can sit on either side of it on the same line.
     const opener = m[0].split("\n", 1)[0]!;
     const head = cmd.slice(cmd.lastIndexOf("\n", m.index) + 1, m.index) + opener;
-    out.push({ text: m[0].slice(opener.length), targets: writeTargets(head) });
+    out.push({ text: m[0].slice(opener.length), head, targets: writeTargets(head) });
   }
-  for (const statement of withoutHeredocs(cmd).split(/&&|\|\||[;\n]/))
-    if (PRINTS.test(statement)) out.push({ text: statement, targets: writeTargets(statement) });
+  for (const statement of statements(withoutHeredocs(cmd)))
+    if (PRINTS.test(statement))
+      out.push({ text: statement, head: statement, targets: writeTargets(statement) });
   return out.filter((w) => w.targets.length);
 }
 
@@ -315,19 +333,56 @@ export function writeTargets(cmd: string): string[] {
     out.push(m[1]!);
   for (const m of shell.matchAll(/\btee\s+([^;&|)<>]+)/g))
     for (const t of m[1]!.match(TOKENS) ?? []) if (!t.startsWith("-")) out.push(t);
-  for (const m of cmd.matchAll(/\b(?:sed\s+-i\S*|perl\s+-p?i\S*)\s+([^;&|]+)/g)) {
-    const tokens = m[1]!.match(TOKENS) ?? [];
-    let skipNext = false;
-    for (const t of tokens) {
-      if (skipNext) {
-        skipNext = false;
-        continue;
-      }
-      if (t === "-e" || t === "-f") skipNext = true;
-      else if (!t.startsWith("-") && !/^["']/.test(t) && !/^s[/|#]/.test(t)) out.push(t);
-    }
-  }
+  for (const e of inPlace(cmd)) out.push(...e.files);
   return out.map(unquote).filter((t) => t && !NOT_A_FILE.test(t));
+}
+
+/** Each `sed -i` or `perl -pi` in a command: its script tokens, and the files it rewrites. */
+function inPlace(cmd: string): { scripts: string[]; files: string[] }[] {
+  const out: { scripts: string[]; files: string[] }[] = [];
+  for (const m of cmd.matchAll(/\b(?:sed\s+-i\S*|perl\s+-p?i\S*)\s+([^;&|]+)/g)) {
+    const edit = { scripts: [] as string[], files: [] as string[] };
+    let scriptNext = false;
+    for (const t of m[1]!.match(TOKENS) ?? []) {
+      if (scriptNext || /^["']/.test(t) || /^s[/|#]/.test(t)) edit.scripts.push(unquote(t));
+      else if (!t.startsWith("-")) edit.files.push(t);
+      scriptNext = t === "-e" || t === "-f";
+    }
+    out.push(edit);
+  }
+  return out;
+}
+
+const SUBSTITUTE = /(?:^|;)\s*s([/|#,])((?:\\.|(?!\1)[^\\])*)\1((?:\\.|(?!\1)[^\\])*)\1/g;
+
+/**
+ * What a shell command does to files, in the shape of an edit, so the checks that read edits read
+ * it too. A redirect replaces the file unless it appends. An in-place script is not run: the text
+ * its `s` commands take out and put in, and the pattern of a delete, stand in for the change.
+ */
+// ponytail: a delete by line number (`5,10d`) and a script in a file (`-f`) say nothing about the text they remove
+export function shellEdits(cmd: string): FileChange[] {
+  const changes: FileChange[] = [];
+  for (const w of shellWrites(cmd)) {
+    const wholeFile = !/>>|\btee\s+(?:-\S+\s+)*-\S*a/.test(w.head);
+    for (const path of w.targets) changes.push({ path, added: w.text, removed: "", wholeFile });
+  }
+  for (const e of inPlace(cmd)) {
+    let added = "";
+    let removed = "";
+    for (const script of e.scripts) {
+      for (const m of script.matchAll(SUBSTITUTE)) {
+        removed += m[2] + "\n";
+        added += m[3] + "\n";
+      }
+      if (/d\s*\}?\s*$/.test(script) && !/^s\W/.test(script)) removed += script + "\n";
+    }
+    // Regex escapes are not part of the text: `\bit\(` takes out `it(`.
+    const text = (t: string): string => t.replace(/\\(\W)/g, "$1").replace(/\\\w/g, " ");
+    for (const path of e.files.map(unquote))
+      changes.push({ path, added: text(added), removed: text(removed) });
+  }
+  return changes;
 }
 
 /** Claude Code's PostToolUseFailure error starts with `Exit code N` when the command ran at all. */

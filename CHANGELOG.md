@@ -13,6 +13,11 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 - The verify gate is tested as a product: every check in every form that hides its exit status, and in every wrapper that does not. The secret check is tested the same way, every shape through every route into a file, for both agents.
 - New tests: a sweep of malformed hook payloads that must all come out as a decision, a guard against regexes that stall on hostile text, a whole session through the real `canny hook` process with `replay` catching an edited ledger, hostile session ids, half-written ledger lines, config trust by path, and hook matchers for every tool Canny reads.
 
+### Fixed
+
+- A shell command that rewrites a test file goes through the test-removal check: a heredoc or `echo` redirect that leaves fewer test cases, an append that adds `.only` or `.skip`, and a `sed -i` or `perl -pi` script whose `s` command or delete pattern takes test cases out or puts skip markers in. The script is read, not run, so a delete by line number is not seen. Text a shell command writes is also checked against the project rules after it runs, like any other edit.
+- A `;` inside quotes no longer splits a shell statement, so `echo "const k = '<key>';" > src/k.ts` is denied. Before, the secret check lost the redirect as soon as the written code ended in a semicolon.
+
 ## [0.2.0] - 2026-09-21
 
 ### Added
