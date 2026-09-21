@@ -1,3 +1,4 @@
+import { isAbsolute, resolve } from "node:path";
 import {
   findSecrets,
   isPrivateEnv,
@@ -69,7 +70,7 @@ function pre(ctx: Ctx, deps: Deps): Decision {
   // The shell reaches the same files with no Write or Edit event, so the same two checks read the command.
   if (!off(deps.config, "secrets")) {
     // After a `cd`, a relative target is no longer relative to `ctx.cwd`, so no env file is exempt.
-    const moved = /(?:^|[;&|(\n])\s*(?:cd|pushd)\s/.test(event.command);
+    const moved = leavesCwd(event.command, cwd);
     for (const w of shellWrites(event.command)) {
       const hits = findSecrets(w.text);
       const targets = hits.length ? w.targets.filter((p) => moved || !isPrivateEnv(p, cwd)) : [];
@@ -106,6 +107,26 @@ function pre(ctx: Ctx, deps: Deps): Decision {
       });
   }
   return { kind: "allow" };
+}
+
+/**
+ * Whether a command may be somewhere else by the time it writes. Agents open commands with
+ * `cd "$PWD";` or a `cd` to the project itself, which goes nowhere, so that alone is not leaving.
+ * Every other `cd` is: where it ends up depends on CDPATH, OLDPWD, and quoting this does not model.
+ */
+function leavesCwd(command: string, cwd: string): boolean {
+  const moves = command.match(/(?:^|[;&|(\n])\s*(?:cd|pushd|popd)\b/g) ?? [];
+  if (!moves.length) return false;
+  // The one `cd` has to open the command, with `&&`, `;`, or a newline after it: after `&`, `|`,
+  // or `||` the rest runs where it started anyway, but then the text is too odd to vouch for.
+  const opening = /^\s*cd\s+(["']?)([^;&|\n)"']*)\1\s*(?:&&|;|\n|$)/.exec(command);
+  if (moves.length > 1 || !opening) return true;
+  const quote = opening[1]!;
+  const target = opening[2]!.trim();
+  if (target === "." || target === "./") return false;
+  // Single quotes make `$PWD` a directory of that name.
+  if (/^\$(?:PWD|\{PWD\})$/.test(target)) return quote === "'";
+  return !(isAbsolute(target) && !/[$`*?~\\]/.test(target) && resolve(target) === resolve(cwd));
 }
 
 /** Record what happened, then hand judgment calls to Jev. Nothing here can block. */

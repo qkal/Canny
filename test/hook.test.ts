@@ -286,6 +286,31 @@ describe("pre checks", () => {
     expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE >> .env.local")).toEqual({
       kind: "allow",
     });
+    // Agents open commands with a `cd` to where they already are; that moves nothing.
+    for (const cd of ['cd "$PWD"; ', `cd ${cwd} && `, "cd . && "])
+      expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local`)).kind).toBe(
+        "allow",
+      );
+    // A directory change that is undone, or confined to a subshell, says nothing about the write.
+    mkdirSync(join(cwd, "sub"));
+    writeFileSync(join(cwd, "sub/.gitignore"), ".env\n");
+    for (const cd of [
+      "pushd sub; popd; ",
+      "(cd sub); ",
+      "(cd sub) && ",
+      "true; cd sub; cd ..; ",
+      'PWD=sub; cd "$PWD"; ',
+      "cd sub && ",
+      "cd sub & ",
+      "cd - && ",
+      "cd '$PWD'; ",
+      'cd "sub;x" && ',
+      "cd sub || ",
+      "cd sub | ",
+    ])
+      expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env`)).kind).toBe("deny");
+    for (const cd of ["cd $OTHER && ", "cd /tmp && ", "cd . && cd sub && "])
+      expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local`)).kind).toBe("deny");
     expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE | tee .env.local src/k.ts")).toMatchObject(
       {
         kind: "deny",
