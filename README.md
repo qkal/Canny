@@ -242,7 +242,7 @@ Canny is not another destructive-command blocker. That space is crowded, and [Po
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: `pnpm install`, then the five gates CI runs, and rebuild `dist/` before you commit, because the install path above depends on it.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: `pnpm install`, then `pnpm check` for the gates CI runs, and rebuild `dist/` before you commit, because the install path above depends on it.
 
 ## License
 

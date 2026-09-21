@@ -42,6 +42,31 @@ describe("normalize", () => {
     });
   });
 
+  it.each([
+    [
+      "MultiEdit",
+      {
+        file_path: "/repo/a.test.ts",
+        edits: [
+          { old_string: "it('a', f)", new_string: "" },
+          { old_string: "x", new_string: "y" },
+        ],
+      },
+      { path: "/repo/a.test.ts", added: "\ny", removed: "it('a', f)\nx" },
+    ],
+    [
+      "NotebookEdit",
+      { notebook_path: "/repo/n.ipynb", new_source: "print(1)" },
+      { path: "/repo/n.ipynb", added: "print(1)", removed: "" },
+    ],
+  ])(
+    "maps a Claude Code %s to one change holding all its text",
+    (tool_name, tool_input, change) => {
+      const ctx = normalize({ ...base, hook_event_name: "PreToolUse", tool_name, tool_input });
+      expect(ctx.event).toEqual({ kind: "edit", changes: [change] });
+    },
+  );
+
   it("reads a successful Claude Code Bash result as exit 0 with changed files", () => {
     const ctx = normalize({
       ...base,

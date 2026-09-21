@@ -1,0 +1,7 @@
+#!/bin/sh
+# Every gate CI runs, before the commit exists. `pnpm check` rebuilds dist/, so the usual failure is a
+# dist/ that was stale: it is fresh now and only needs staging.
+pnpm check || {
+  echo "pre-commit: a gate failed. If it was the dist/ diff, run \`git add dist\` and commit again." >&2
+  exit 1
+}

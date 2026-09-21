@@ -53,6 +53,22 @@ describe("isCannyHook", () => {
   ])("%j -> %s", (hook, yes) => expect(isCannyHook(hook)).toBe(yes));
 });
 
+describe("hookConfig", () => {
+  // A tool `normalize` understands but no matcher names is an edit the ledger never sees.
+  it.each([
+    ["claude", ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"]],
+    ["codex", ["Bash", "apply_patch"]],
+  ] as const)("routes every tool %s edits or runs with through both phases", (agent, tools) => {
+    const config = hookConfig(agent, "canny");
+    for (const event of ["PreToolUse", "PostToolUse"]) {
+      const [group] = config[event] as { matcher?: string }[];
+      for (const tool of tools) expect(tool).toMatch(new RegExp(`^(?:${group?.matcher})$`));
+    }
+    expect(config.Stop).toHaveLength(1);
+    expect(isCannyHook(config.Stop![0]!.hooks![0]!)).toBe(true);
+  });
+});
+
 describe("merge", () => {
   it("creates the file with Canny's hooks when there is none", () => {
     expect(merge(file, ours)).toBe(`wrote ${file}`);

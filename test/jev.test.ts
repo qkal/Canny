@@ -9,7 +9,7 @@ beforeEach(() => {
 });
 
 const ok = (answers: Record<string, number>) =>
-  vi.fn(
+  vi.fn<typeof fetch>(
     async () =>
       new Response(
         JSON.stringify({
@@ -43,7 +43,7 @@ describe("makeJudge", () => {
     });
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(logs.map((l) => l.cached)).toEqual([false, true]);
-    const init = fetchFn.mock.calls[0]?.[1] as RequestInit | undefined;
+    const init = fetchFn.mock.calls[0]?.[1];
     expect(init?.headers).toMatchObject({ Authorization: "Bearer k" });
     expect(JSON.parse(String(init?.body))).toMatchObject({
       state: "s",

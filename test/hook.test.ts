@@ -216,6 +216,59 @@ describe("pre checks", () => {
     expect(await bash(`echo ${key} > src/k.ts`, { allow: ["secrets"] })).toEqual({ kind: "allow" });
   });
 
+  // Each shape of secret through each way an agent can put text into a file, for both agents.
+  it("denies every secret shape on every route into a file, and none of the routes on plain code", async () => {
+    const secrets = [
+      "AKIAIOSFODNN7EXAMPLE",
+      "ghp_" + "a1".repeat(20),
+      "github_pat_" + "a1B2".repeat(8),
+      "xoxb-1234567890-abcdefghij",
+      "-----BEGIN OPENSSH PRIVATE KEY-----",
+      "sk-ant-api03-" + "x9".repeat(20),
+      "sk_live_" + "a1".repeat(12),
+      "AIza" + "a1B2c".repeat(7),
+      `api_key = "${"a1b2c3d4".repeat(3)}"`,
+    ];
+    const file_path = join(cwd, "src/k.ts");
+    const shell = (command: string, agent: Agent = "claude") =>
+      ["Bash", { command }, agent] as const;
+    const routes: ((text: string) => readonly [string, Record<string, unknown>, Agent])[] = [
+      (t) => ["Write", { file_path, content: `x\n${t}\n` }, "claude"],
+      (t) => ["Edit", { file_path, old_string: "x", new_string: t }, "claude"],
+      (t) => [
+        "MultiEdit",
+        { file_path, edits: [{ new_string: "y" }, { new_string: t }] },
+        "claude",
+      ],
+      (t) => ["NotebookEdit", { notebook_path: join(cwd, "n.ipynb"), new_source: t }, "claude"],
+      (t) => ["apply_patch", { command: `*** Add File: src/k.ts\n+${t}` }, "codex"],
+      (t) => shell(`cat > src/k.ts <<'EOF'\n${t}\nEOF`),
+      (t) => shell(`cat <<EOF >> src/k.ts\n${t}\nEOF`),
+      (t) => shell(`mkdir -p src && echo '${t}' >> src/k.ts`),
+      (t) => shell(`printf '%s\\n' '${t}' | tee src/k.ts`),
+      (t) => shell(`echo '${t}' | tee -a src/k.ts > /dev/null`),
+      (t) => shell(`echo '${t}' > src/k.ts`, "codex"),
+    ];
+    const decide = async (text: string): Promise<string[]> =>
+      Promise.all(
+        routes.map(async (route) => {
+          const [tool_name, tool_input, agent] = route(text);
+          const d = await run(
+            { hook_event_name: "PreToolUse", tool_name, tool_input },
+            offline,
+            {},
+            agent,
+          );
+          return `${tool_name} ${JSON.stringify(tool_input).slice(0, 60)}: ${d.kind}`;
+        }),
+      );
+    for (const secret of secrets)
+      expect((await decide(secret)).filter((line) => !line.endsWith(": deny"))).toEqual([]);
+    expect(
+      (await decide("const k = process.env.KEY")).filter((l) => !l.endsWith(": allow")),
+    ).toEqual([]);
+  });
+
   it("lets a key into an env file only when git ignores that file", async () => {
     execFileSync("git", ["init", "-q"], { cwd });
     writeFileSync(join(cwd, ".gitignore"), ".env.local\n");

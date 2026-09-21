@@ -1,0 +1,342 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`recorded sessions > claude-code: every event reads as it did when recorded, and the Stop is blocked 1`] = `
+[
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changes": [
+        {
+          "added": "export const add = (a, b) => a + b;
+",
+          "path": "/repo/src/math.js",
+          "removed": "",
+          "wholeFile": true,
+        },
+      ],
+      "kind": "edit",
+    },
+    "hookEvent": "PreToolUse",
+    "phase": "pre",
+    "session": "session",
+    "tool": "Write",
+  },
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changes": [
+        {
+          "added": "export const add = (a, b) => a + b;
+",
+          "path": "/repo/src/math.js",
+          "removed": "",
+          "wholeFile": true,
+        },
+      ],
+      "kind": "edit",
+    },
+    "hookEvent": "PostToolUse",
+    "phase": "post",
+    "session": "session",
+    "tool": "Write",
+  },
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changes": [
+        {
+          "added": "export const add = (a, b) => a + b;
+export const sub = (a, b) => a - b;
+",
+          "path": "/repo/src/math.js",
+          "removed": "export const add = (a, b) => a + b;
+",
+        },
+      ],
+      "kind": "edit",
+    },
+    "hookEvent": "PreToolUse",
+    "phase": "pre",
+    "session": "session",
+    "tool": "Edit",
+  },
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changes": [
+        {
+          "added": "export const add = (a, b) => a + b;
+export const sub = (a, b) => a - b;
+",
+          "path": "/repo/src/math.js",
+          "removed": "export const add = (a, b) => a + b;
+",
+        },
+      ],
+      "kind": "edit",
+    },
+    "hookEvent": "PostToolUse",
+    "phase": "post",
+    "session": "session",
+    "tool": "Edit",
+  },
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changedFiles": [],
+      "command": "node -e "process.exit(3)"",
+      "exitCode": null,
+      "kind": "command",
+      "output": "",
+    },
+    "hookEvent": "PreToolUse",
+    "phase": "pre",
+    "session": "session",
+    "tool": "Bash",
+  },
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changedFiles": [],
+      "command": "node -e "process.exit(3)"",
+      "exitCode": 3,
+      "kind": "command",
+      "output": "Exit code 3",
+    },
+    "hookEvent": "PostToolUseFailure",
+    "phase": "post",
+    "session": "session",
+    "tool": "Bash",
+  },
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changedFiles": [],
+      "command": "echo generated > gen.txt && node -e "console.log(42)"",
+      "exitCode": null,
+      "kind": "command",
+      "output": "",
+    },
+    "hookEvent": "PreToolUse",
+    "phase": "pre",
+    "session": "session",
+    "tool": "Bash",
+  },
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changedFiles": [
+        "gen.txt",
+      ],
+      "command": "echo generated > gen.txt && node -e "console.log(42)"",
+      "exitCode": 0,
+      "kind": "command",
+      "output": "42",
+    },
+    "hookEvent": "PostToolUse",
+    "phase": "post",
+    "session": "session",
+    "tool": "Bash",
+  },
+  {
+    "agent": "claude",
+    "cwd": "/repo",
+    "decision": "block",
+    "event": {
+      "kind": "stop",
+      "message": "Done.",
+      "stopHookActive": false,
+    },
+    "hookEvent": "Stop",
+    "phase": "stop",
+    "session": "session",
+    "tool": "",
+  },
+]
+`;
+
+exports[`recorded sessions > codex: every event reads as it did when recorded, and the Stop is blocked 1`] = `
+[
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changes": [
+        {
+          "added": "export const add = (a, b) => a + b;
+",
+          "deleted": false,
+          "path": "src/math.js",
+          "removed": "",
+        },
+      ],
+      "kind": "edit",
+    },
+    "hookEvent": "PreToolUse",
+    "phase": "pre",
+    "session": "session",
+    "tool": "apply_patch",
+  },
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changes": [
+        {
+          "added": "export const add = (a, b) => a + b;
+",
+          "deleted": false,
+          "path": "src/math.js",
+          "removed": "",
+        },
+      ],
+      "kind": "edit",
+    },
+    "hookEvent": "PostToolUse",
+    "phase": "post",
+    "session": "session",
+    "tool": "apply_patch",
+  },
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changes": [
+        {
+          "added": "export const sub = (a, b) => a - b;
+",
+          "deleted": false,
+          "path": "src/math.js",
+          "removed": "",
+        },
+      ],
+      "kind": "edit",
+    },
+    "hookEvent": "PreToolUse",
+    "phase": "pre",
+    "session": "session",
+    "tool": "apply_patch",
+  },
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changes": [
+        {
+          "added": "export const sub = (a, b) => a - b;
+",
+          "deleted": false,
+          "path": "src/math.js",
+          "removed": "",
+        },
+      ],
+      "kind": "edit",
+    },
+    "hookEvent": "PostToolUse",
+    "phase": "post",
+    "session": "session",
+    "tool": "apply_patch",
+  },
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changedFiles": [],
+      "command": "node -e "process.exit(3)"",
+      "exitCode": null,
+      "kind": "command",
+      "output": "",
+    },
+    "hookEvent": "PreToolUse",
+    "phase": "pre",
+    "session": "session",
+    "tool": "Bash",
+  },
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changedFiles": [],
+      "command": "node -e "process.exit(3)"",
+      "exitCode": 3,
+      "kind": "command",
+      "output": "",
+    },
+    "hookEvent": "PostToolUse",
+    "phase": "post",
+    "session": "session",
+    "tool": "Bash",
+  },
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changedFiles": [],
+      "command": "echo generated > gen.txt && node -e "console.log(42)"",
+      "exitCode": null,
+      "kind": "command",
+      "output": "",
+    },
+    "hookEvent": "PreToolUse",
+    "phase": "pre",
+    "session": "session",
+    "tool": "Bash",
+  },
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "allow",
+    "event": {
+      "changedFiles": [
+        "gen.txt",
+      ],
+      "command": "echo generated > gen.txt && node -e "console.log(42)"",
+      "exitCode": 0,
+      "kind": "command",
+      "output": "42
+",
+    },
+    "hookEvent": "PostToolUse",
+    "phase": "post",
+    "session": "session",
+    "tool": "Bash",
+  },
+  {
+    "agent": "codex",
+    "cwd": "/repo",
+    "decision": "block",
+    "event": {
+      "kind": "stop",
+      "message": "Done.",
+      "stopHookActive": false,
+    },
+    "hookEvent": "Stop",
+    "phase": "stop",
+    "session": "session",
+    "tool": "",
+  },
+]
+`;
