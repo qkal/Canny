@@ -1,14 +1,16 @@
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import type { Agent } from "./events.js";
 
 type Hook = { command?: string; statusMessage?: string };
@@ -16,13 +18,13 @@ type Group = { hooks?: Hook[] };
 export type Hooks = Record<string, Group[]>;
 
 const STATUS = "Canny";
-const RUNS_CANNY = /(?:^|[\s"'/\\])canny["']?\s+hook\s+--agent\s+(?:claude|codex)\b/;
+const RUNS_CANNY = /^["']?canny["']?\s+hook\s+--agent\s+(?:claude|codex)\b/;
 const RUNS_A_HOOK = /\shook\s+--agent\s+(?:claude|codex)\b/;
 
 /**
  * A hook entry Canny wrote. Every version has set `statusMessage: "Canny"`, so that marker plus the
  * `hook --agent` arguments identifies the `node "<checkout>/dist/cli.js"` form; `cli.js` alone would
- * also claim another tool's hook. The bare `canny hook --agent …` command counts without the marker.
+ * also claim another tool's hook. A command that starts with `canny hook --agent …` counts without it.
  */
 export const isCannyHook = (h: Hook): boolean => {
   const command = h.command ?? "";
@@ -96,16 +98,20 @@ export function merge(file: string, ours: Hooks): string {
     if (kept.length) hooks[event] = kept;
     else delete hooks[event];
   }
-  for (const [event, groups] of Object.entries(ours))
-    hooks[event] = [...(Array.isArray(hooks[event]) ? (hooks[event] as Group[]) : []), ...groups];
+  for (const [event, groups] of Object.entries(ours)) {
+    const there = hooks[event] ?? [];
+    if (!Array.isArray(there))
+      throw new Error(`"${event}" in ${file} is not a JSON array; fix it and run again.`);
+    hooks[event] = [...(there as Group[]), ...groups];
+  }
   const adding = Object.keys(ours).length > 0;
   if (!adding && !removed) return `no Canny hooks in ${file}`;
   if (Object.keys(hooks).length) existing.hooks = hooks;
   else delete existing.hooks;
-  mkdirSync(dirname(file), { recursive: true });
   // Written beside the file and renamed over it, so a crash mid-write cannot leave half a settings
   // file. Through a symlink the real file is replaced, so a dotfiles link stays a link.
-  const target = existsSync(file) ? realpathSync(file) : file;
+  const target = realTarget(file);
+  mkdirSync(dirname(target), { recursive: true });
   const mode = existsSync(target) ? statSync(target).mode : undefined;
   const tmp = `${target}.canny-${process.pid}.tmp`;
   try {
@@ -116,4 +122,15 @@ export function merge(file: string, ours: Hooks): string {
     throw e;
   }
   return `${adding ? "wrote" : "removed Canny hooks from"} ${file}`;
+}
+
+/** Where a write to `file` lands. A link whose target does not exist yet still points somewhere. */
+function realTarget(file: string): string {
+  try {
+    return realpathSync(file);
+  } catch {
+    return lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()
+      ? resolve(dirname(file), readlinkSync(file))
+      : file;
+  }
 }

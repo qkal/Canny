@@ -47,6 +47,7 @@ describe("isCannyHook", () => {
       false,
     ],
     [{ command: "/Users/kal/canny/other-tool/run.sh --hook", statusMessage: "Canny" }, false],
+    [{ command: "echo canny hook --agent claude" }, false],
     [{ command: "uncanny hook --agent claude" }, false],
     [{ command: "canny status" }, false],
   ])("%j -> %s", (hook, yes) => expect(isCannyHook(hook)).toBe(yes));
@@ -112,15 +113,28 @@ describe("merge", () => {
     expect(Object.keys(json().hooks as object)).toContain("Stop");
   });
 
-  it.each(["{ not json", "[]", "null", '{"hooks": []}', '{"hooks": "x"}'])(
-    "refuses %s and leaves the file as it was",
-    (text) => {
-      file = join(dir, "s.json");
-      writeFileSync(file, text);
-      expect(() => merge(file, ours)).toThrow(/fix it and run again/);
-      expect(readFileSync(file, "utf8")).toBe(text);
-    },
-  );
+  it.each([
+    "{ not json",
+    "[]",
+    "null",
+    '{"hooks": []}',
+    '{"hooks": "x"}',
+    '{"hooks":{"Stop":"x"}}',
+  ])("refuses %s and leaves the file as it was", (text) => {
+    file = join(dir, "s.json");
+    writeFileSync(file, text);
+    expect(() => merge(file, ours)).toThrow(/fix it and run again/);
+    expect(readFileSync(file, "utf8")).toBe(text);
+  });
+
+  it("writes to where a dangling symlink points, and keeps the link", () => {
+    const real = join(dir, "not-yet", "settings.json");
+    file = join(dir, "settings.json");
+    symlinkSync(real, file);
+    merge(file, ours);
+    expect(lstatSync(file).isSymbolicLink()).toBe(true);
+    expect(Object.keys(JSON.parse(readFileSync(real, "utf8")) as object)).toEqual(["hooks"]);
+  });
 
   it("writes through a symlink, keeps the file mode, and leaves no temp file", () => {
     const real = join(dir, "dotfiles-settings.json");
