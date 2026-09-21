@@ -4,24 +4,30 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
 import type { Agent } from "./events.js";
 
-type Hook = { command?: string };
+type Hook = { command?: string; statusMessage?: string };
 type Group = { hooks?: Hook[] };
 export type Hooks = Record<string, Group[]>;
 
-/**
- * A hook command Canny wrote: `canny hook --agent …`, or node with a path to `cli.js`, which is what
- * `init` writes without a `canny` on PATH. Matching the word "canny" alone would also claim another
- * tool's hook that merely lives under a directory of that name.
- */
-const CANNY_HOOK = /(?:^|[\s"'/\\])(?:canny|cli\.js)["']?\s+hook\s+--agent\s+(?:claude|codex)\b/;
+const STATUS = "Canny";
+const RUNS_CANNY = /(?:^|[\s"'/\\])canny["']?\s+hook\s+--agent\s+(?:claude|codex)\b/;
+const RUNS_A_HOOK = /\shook\s+--agent\s+(?:claude|codex)\b/;
 
-export const isCannyHook = (h: Hook): boolean => CANNY_HOOK.test(h.command ?? "");
+/**
+ * A hook entry Canny wrote. Every version has set `statusMessage: "Canny"`, so that marker plus the
+ * `hook --agent` arguments identifies the `node "<checkout>/dist/cli.js"` form; `cli.js` alone would
+ * also claim another tool's hook. The bare `canny hook --agent …` command counts without the marker.
+ */
+export const isCannyHook = (h: Hook): boolean => {
+  const command = h.command ?? "";
+  return RUNS_CANNY.test(command) || (h.statusMessage === STATUS && RUNS_A_HOOK.test(command));
+};
 
 /** The hook entries for one agent. `command` is how to run this CLI, without the `hook` arguments. */
 export function hookConfig(agent: Agent, command: string): Hooks {
@@ -32,7 +38,7 @@ export function hookConfig(agent: Agent, command: string): Hooks {
         type: "command",
         command: `${command} hook --agent ${agent}`,
         timeout,
-        statusMessage: "Canny",
+        statusMessage: STATUS,
       } as Hook,
     ],
   });
@@ -71,6 +77,7 @@ export function merge(file: string, ours: Hooks): string {
       throw new Error(`${file} does not hold a JSON object; fix it and run again.`);
     existing = parsed;
   }
+  // `"hooks": null` says "no hooks" and holds nothing to lose, so it reads as absent.
   const current = existing.hooks ?? {};
   if (typeof current !== "object" || Array.isArray(current))
     throw new Error(`"hooks" in ${file} is not a JSON object; fix it and run again.`);
@@ -101,7 +108,12 @@ export function merge(file: string, ours: Hooks): string {
   const target = existsSync(file) ? realpathSync(file) : file;
   const mode = existsSync(target) ? statSync(target).mode : undefined;
   const tmp = `${target}.canny-${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(existing, null, 2) + "\n", { mode });
-  renameSync(tmp, target);
+  try {
+    writeFileSync(tmp, JSON.stringify(existing, null, 2) + "\n", { mode });
+    renameSync(tmp, target);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
   return `${adding ? "wrote" : "removed Canny hooks from"} ${file}`;
 }

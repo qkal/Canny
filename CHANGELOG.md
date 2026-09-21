@@ -26,7 +26,7 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
-- `canny init` and `canny remove` recognise their own hook entries by the command Canny writes (`canny hook --agent …`, or node with a path to `cli.js`), not by the word "canny" anywhere in the command. Another tool's hook that lives under a directory named `canny` is no longer deleted.
+- `canny init` and `canny remove` recognise their own hook entries by the `statusMessage: "Canny"` marker every version has written together with the `hook --agent …` arguments, or by the bare `canny hook --agent …` command, not by the word "canny" anywhere in the command. Another tool's hook that lives under a directory named `canny` is no longer deleted.
 - A hook group that holds another tool's hook next to Canny's keeps the other hook; the whole group used to be dropped.
 - A settings file that holds valid JSON but not an object, or a `hooks` value that is not an object, is refused and left untouched, and the command exits 1. `null` used to crash and `[]` was silently overwritten.
 - Settings are written to a temporary file and renamed into place, so a crash mid-write cannot leave half a file. A symlinked `settings.json` stays a symlink and the file keeps its mode. `canny remove` leaves no empty `"hooks": {}` behind.

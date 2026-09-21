@@ -26,13 +26,30 @@ beforeEach(() => {
 
 describe("isCannyHook", () => {
   it.each([
-    ["canny hook --agent claude", true],
-    ['node "/Users/me/.canny/src/dist/cli.js" hook --agent codex', true],
-    ["/opt/node/bin/node /store/canny-warden/dist/cli.js hook --agent claude", true],
-    ["/Users/kal/canny/other-tool/run.sh --hook", false],
-    ["uncanny hook --agent claude", false],
-    ["canny status", false],
-  ])("%s -> %s", (command, yes) => expect(isCannyHook({ command })).toBe(yes));
+    [{ command: "canny hook --agent claude" }, true],
+    [
+      {
+        command: 'node "/Users/me/.canny/src/dist/cli.js" hook --agent codex',
+        statusMessage: "Canny",
+      },
+      true,
+    ],
+    [
+      {
+        command: "/opt/node/bin/node /store/canny-warden/dist/cli.js hook --agent claude",
+        statusMessage: "Canny",
+      },
+      true,
+    ],
+    [{ command: "node /opt/guardian/cli.js hook --agent claude" }, false],
+    [
+      { command: "node /opt/guardian/cli.js hook --agent claude", statusMessage: "Guardian" },
+      false,
+    ],
+    [{ command: "/Users/kal/canny/other-tool/run.sh --hook", statusMessage: "Canny" }, false],
+    [{ command: "uncanny hook --agent claude" }, false],
+    [{ command: "canny status" }, false],
+  ])("%j -> %s", (hook, yes) => expect(isCannyHook(hook)).toBe(yes));
 });
 
 describe("merge", () => {
@@ -87,7 +104,15 @@ describe("merge", () => {
     expect(merge(file, {})).toBe(`no Canny hooks in ${file}`);
   });
 
-  it.each(["{ not json", "[]", "null", '{"hooks": []}'])(
+  it("reads a null hooks value as no hooks", () => {
+    file = join(dir, "s.json");
+    writeFileSync(file, '{"model":"x","hooks":null}');
+    merge(file, ours);
+    expect(json().model).toBe("x");
+    expect(Object.keys(json().hooks as object)).toContain("Stop");
+  });
+
+  it.each(["{ not json", "[]", "null", '{"hooks": []}', '{"hooks": "x"}'])(
     "refuses %s and leaves the file as it was",
     (text) => {
       file = join(dir, "s.json");
