@@ -301,6 +301,9 @@ describe("pre checks", () => {
       "(cd sub) && ",
       "true; cd sub; cd ..; ",
       'PWD=sub; cd "$PWD"; ',
+      "cd sub & ",
+      "cd sub || ",
+      "cd sub | ",
     ])
       expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env`)).kind).toBe("deny");
     for (const cd of ["cd $OTHER && ", "cd /tmp && ", "cd . && cd sub && "])

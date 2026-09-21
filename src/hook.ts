@@ -120,7 +120,8 @@ function shellDir(command: string, cwd: string): string | null {
   if (!moves.length) return cwd;
   // Only a lone `cd` that opens the command is followed. One that is undone by `popd` or a second
   // `cd`, or that sits in a subshell, does not say where a later write lands.
-  const opening = /^\s*(?:cd|pushd)\s+([^;&|\n)]*)/.exec(command);
+  // `&&`, `;`, or a newline must follow: after `&`, `|`, or `||` the rest runs where it started.
+  const opening = /^\s*(?:cd|pushd)\s+([^;&|\n)]*)(?:&&|;|\n|$)/.exec(command);
   if (moves.length > 1 || !opening) return null;
   const target = opening[1]!.trim().replace(/^(["'])(.*)\1$/, "$2");
   // `$PWD` is the one variable whose value is known here.
