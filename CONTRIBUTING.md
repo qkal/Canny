@@ -29,7 +29,7 @@ This one replays the README install in a temp directory: a checkout with only `d
 
 `pnpm install` points git at `.githooks/`, so `pnpm check` also runs before every commit. It takes about two seconds. When it fails on the `dist/` diff, the build it just ran has already fixed `dist/`: `git add dist` and commit again.
 
-CI runs the static gates once, the tests on Node 22, 24, and 26 on Linux and on macOS, the smoke test on both, and CodeQL. The jobs are in `.github/workflows/`. `ci-ok` passes only when every other CI job did, so it is the one check to require on `main`.
+CI runs the static gates once, the tests on Node 22, 24, and 26 on Linux and on macOS, the smoke test on both, and CodeQL. The jobs are in `.github/workflows/`. `ci-ok` passes only when `static`, every `test` cell, and both `smoke` jobs did, so it is the one check to require on `main` for those. CodeQL is its own workflow, which `ci-ok` cannot wait for: its job is `analyze`, and it only blocks a merge if that check is required too.
 
 Add a test when you fix a bug (the one that fails before the fix) or change what the gate decides. Four cases that differ only by input are one parametrized test. `src/cli.ts` runs its command switch on import, so `test/cli.test.ts` compiles it to a scratch directory and runs each command as a process, with `HOME` and `CANNY_HOME` pointed at temp directories. Logic that can live outside `cli.ts` (`src/install.ts`, `src/ledger.ts`) is tested by import.
 

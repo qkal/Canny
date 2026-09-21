@@ -78,7 +78,8 @@ jobs:
           node-version: 22
       - run: bash test/smoke.sh
 
-  # The one check to require on `main`: matrix job names change with the matrix, this name does not.
+  # The one check to require on `main` for this workflow: matrix job names change with the matrix, this
+  # name does not. CodeQL is another workflow, so `needs` cannot reach it.
   ci-ok:
     if: always()
     needs: [static, test, smoke]
