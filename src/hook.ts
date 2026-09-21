@@ -113,15 +113,19 @@ function pre(ctx: Ctx, deps: Deps): Decision {
 /**
  * Where a command's relative paths start from. Agents open commands with `cd "$PWD"` or a `cd` to
  * the project itself, so one `cd` to a plain path is followed. Null when the text does not say:
- * a variable, a second `cd`. No env file is exempt then.
+ * a variable, a second `cd`, a `popd`, a subshell. No env file is exempt then.
  */
 function shellDir(command: string, cwd: string): string | null {
-  const cds = [...command.matchAll(/(?:^|[;&|(\n])\s*(?:cd|pushd)\s+([^;&|\n)]*)/g)];
-  if (!cds.length) return cwd;
-  const target = cds[0]![1]!.trim().replace(/^(["'])(.*)\1$/, "$2");
+  const moves = command.match(/(?:^|[;&|(\n])\s*(?:cd|pushd|popd)\b/g) ?? [];
+  if (!moves.length) return cwd;
+  // Only a lone `cd` that opens the command is followed. One that is undone by `popd` or a second
+  // `cd`, or that sits in a subshell, does not say where a later write lands.
+  const opening = /^\s*(?:cd|pushd)\s+([^;&|\n)]*)/.exec(command);
+  if (moves.length > 1 || !opening) return null;
+  const target = opening[1]!.trim().replace(/^(["'])(.*)\1$/, "$2");
   // `$PWD` is the one variable whose value is known here.
   const rest = target.replace(/^\$(?:PWD\b|\{PWD\})/, "");
-  if (cds.length > 1 || !target || /[$`*?~]/.test(rest)) return null;
+  if (!target || /[$`*?~]/.test(rest)) return null;
   return rest === target ? resolve(cwd, target) : resolve(cwd, "." + rest);
 }
 

@@ -291,6 +291,12 @@ describe("pre checks", () => {
       expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local`)).kind).toBe(
         "allow",
       );
+    // A directory change that is undone, or confined to a subshell, says nothing about the write.
+    mkdirSync(join(cwd, "sub"));
+    writeFileSync(join(cwd, "sub/.gitignore"), ".env\n");
+    expect((await bash("cd sub && echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env")).kind).toBe("allow");
+    for (const cd of ["pushd sub; popd; ", "(cd sub); ", "true; cd sub; cd ..; "])
+      expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env`)).kind).toBe("deny");
     for (const cd of ["cd $OTHER && ", "cd /tmp && ", "cd . && cd sub && "])
       expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local`)).kind).toBe("deny");
     expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE | tee .env.local src/k.ts")).toMatchObject(
