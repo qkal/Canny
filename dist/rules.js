@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { plain } from "./checks.js";
 const STRONG = /\b(never|always|must|do not|don't|no\s+\w)\b/i;
 const SOFT = /\b(should|prefer|avoid|only|use|keep|run)\b/i;
 const MAX_RULES = 24;
@@ -54,7 +55,7 @@ export function extractRules(markdown) {
     flush();
     return out;
 }
-const clean = (s) => s
+const clean = (s) => plain(s)
     .replace(/`([^`]*)`/g, "$1")
     .replace(/\*\*([^*]*)\*\*/g, "$1")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")

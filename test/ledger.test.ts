@@ -1,12 +1,7 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { describe, expect, it } from "vitest";
 import { append, read, sessionFile, sessionsDir, summarize, type Entry } from "../src/ledger.js";
-
-beforeEach(() => {
-  process.env.CANNY_HOME = mkdtempSync(join(tmpdir(), "canny-ledger-"));
-});
 
 describe("sessionFile", () => {
   // The session id comes from the hook payload, so it must never choose where the ledger lands.

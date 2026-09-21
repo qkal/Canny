@@ -7,7 +7,9 @@ import { loadRules } from "./rules.js";
 /** Identical failures: the agent is told at the second one and stopped after the third. */
 const REPEAT_NOTE_AT = 2;
 const REPEAT_DENY_AFTER = 3;
-export const CLAIMS_DONE = noul("Does `message` claim that the requested work is complete?", {
+/** The question id `canny replay` reads back out of the ledger. */
+export const CLAIMS_DONE_ID = "claims_done";
+const CLAIMS_DONE = noul("Does `message` claim that the requested work is complete?", {
     true: "Says the task, fix, feature, or change is done, implemented, complete, finished, ready, or working, or gives a final summary of finished work",
     false: "Asks the user a question, reports being blocked or unable to proceed, describes partial progress, or proposes next steps without saying the work is finished",
 });
@@ -25,44 +27,50 @@ export async function handle(ctx, deps) {
 }
 /** Pattern checks that can block, before the tool runs. Nothing is recorded here: the edit has not happened yet. */
 function pre(ctx, deps) {
-    const { event } = ctx;
+    const { event, cwd } = ctx;
     if (event.kind === "edit") {
         for (const c of event.changes) {
-            const hits = off(deps.config, "secrets") ? [] : findSecrets(c.added);
-            if (hits.length && !isPrivateEnv(c.path, ctx.cwd))
-                return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, [c.path], hits) });
-            const damage = off(deps.config, "test-removal") ? null : testDamage(c, ctx.cwd);
-            if (damage)
-                return record(ctx, deps, { kind: "ask", message: describe(ctx, c, damage) });
+            if (!off(deps.config, "secrets")) {
+                const hits = findSecrets(c.added);
+                if (hits.length && !isPrivateEnv(c.path, cwd))
+                    return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, [c.path], hits) });
+            }
+            if (!off(deps.config, "test-removal")) {
+                const damage = testDamage(c, cwd);
+                if (damage)
+                    return record(ctx, deps, { kind: "ask", message: describe(ctx, c, damage) });
+            }
         }
+        return { kind: "allow" };
     }
+    if (event.kind !== "command")
+        return { kind: "allow" };
     // The shell reaches the same files with no Write or Edit event, so the same two checks read the command.
-    if (event.kind === "command") {
+    if (!off(deps.config, "secrets")) {
         // After a `cd`, a relative target is no longer relative to `ctx.cwd`, so no env file is exempt.
         const moved = /(?:^|[;&|(\n])\s*(?:cd|pushd)\s/.test(event.command);
-        for (const w of off(deps.config, "secrets") ? [] : shellWrites(event.command)) {
+        for (const w of shellWrites(event.command)) {
             const hits = findSecrets(w.text);
-            const targets = hits.length
-                ? w.targets.filter((p) => moved || !isPrivateEnv(p, ctx.cwd))
-                : [];
+            const targets = hits.length ? w.targets.filter((p) => moved || !isPrivateEnv(p, cwd)) : [];
             if (targets.length)
                 return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, targets, hits) });
         }
-        const ops = off(deps.config, "test-removal") ? null : fileOps(event.command);
+    }
+    if (!off(deps.config, "test-removal")) {
+        const ops = fileOps(event.command);
         const gone = [
-            ...(ops?.removed ?? []),
-            ...(ops?.moved ?? []).filter(([, to]) => !isTestFile(to)).map(([from]) => from),
+            ...ops.removed,
+            ...ops.moved.filter(([, to]) => !isTestFile(to)).map(([from]) => from),
         ].filter(isTestFile);
         if (gone.length)
             return record(ctx, deps, {
                 kind: "ask",
-                message: `Canny: this command removes ${list(gone.map((p) => rel(ctx.cwd, p)))} from the tests. ${TESTS_STAY}`,
+                message: `Canny: this command removes ${list(gone.map((p) => rel(cwd, p)))} from the tests. ${TESTS_STAY}`,
             });
     }
-    if (event.kind === "command" && !off(deps.config, "repeat-failure")) {
-        const s = summarize(read(deps.file));
+    if (!off(deps.config, "repeat-failure")) {
         const command = plain(event.command);
-        const hit = Object.values(s.repeats).find((r) => r.command === command && r.n >= REPEAT_DENY_AFTER);
+        const hit = Object.values(summarize(read(deps.file)).repeats).find((r) => r.command === command && r.n >= REPEAT_DENY_AFTER);
         if (hit)
             return record(ctx, deps, {
                 kind: "deny",
@@ -129,8 +137,8 @@ async function stop(ctx, deps) {
     const s = summarize(read(deps.file));
     let claimsDone;
     if (s.codeFiles.length && !s.verified && ctx.event.message) {
-        const answers = await deps.judge({ message: ctx.event.message }, { claims_done: CLAIMS_DONE });
-        claimsDone = answers?.claims_done;
+        const answers = await deps.judge({ message: ctx.event.message }, { [CLAIMS_DONE_ID]: CLAIMS_DONE });
+        claimsDone = answers?.[CLAIMS_DONE_ID];
     }
     return record(ctx, deps, decideStop(s, ctx.event.stopHookActive, claimsDone, deps.config));
 }

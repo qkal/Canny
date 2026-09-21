@@ -29,6 +29,17 @@ describe("extractRules", () => {
   });
 });
 
+describe("extractRules", () => {
+  // A rule read from project markdown is replayed into the agent's context and the user's terminal.
+  it("strips escape sequences and control bytes from a rule", () => {
+    const esc = String.fromCharCode(27);
+    expect(extractRules(`- ${esc}[31mNever commit secrets${esc}[0m to the repo.\n`)).toEqual([
+      "Never commit secrets to the repo.",
+    ]);
+    expect(extractRules("- Never commit\u0007 secrets to the repo.\n")[0]).not.toMatch(/\p{Cc}/u);
+  });
+});
+
 describe("loadRules", () => {
   it("prefers config rules, else reads CLAUDE.md and AGENTS.md with strong rules first", () => {
     const dir = mkdtempSync(join(tmpdir(), "canny-rules-"));

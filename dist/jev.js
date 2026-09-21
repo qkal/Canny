@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sha } from "./checks.js";
 import { home } from "./config.js";
-export const JEV_MODEL = process.env.CANNY_JEV_MODEL ?? "jev-latest";
-export const JEV_URL = process.env.CANNY_JEV_URL ?? "https://api.typesafe.ai/v1/systemone";
+const JEV_MODEL = process.env.CANNY_JEV_MODEL ?? "jev-latest";
+const JEV_URL = process.env.CANNY_JEV_URL ?? "https://api.typesafe.ai/v1/systemone";
 const TIMEOUT_MS = Number(process.env.CANNY_JEV_TIMEOUT_MS ?? 3000);
 /** Jev drifts about 0.05 between runs, so only answers outside this band are acted on. */
 export const YES = 0.9;
@@ -13,7 +13,7 @@ export const noul = (instructions, criteria) => ({
     instructions,
     ...(criteria && { criteria }),
 });
-export const hashOf = (body) => sha(JSON.stringify(body));
+const hashOf = (body) => sha(JSON.stringify(body));
 const cacheFile = (hash) => join(home(), "jev", `${hash}.json`);
 /** A judge backed by TypeSafe's Jev, with a content-hash cache in front of it. */
 export function makeJudge(opts) {

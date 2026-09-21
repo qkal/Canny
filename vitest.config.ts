@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    setupFiles: ["./test/setup.ts"],
     coverage: {
       include: ["src/**"],
       // `cli.ts` only ever runs as a child process of test/cli.test.ts, where v8 coverage cannot follow.

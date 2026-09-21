@@ -1,12 +1,21 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { basename, join } from "node:path";
-const obj = (v) => v !== null && typeof v === "object" && !Array.isArray(v) ? v : {};
+/** Whether untrusted JSON is a plain object. `null` and arrays are not. */
+export const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const obj = (v) => (isObj(v) ? v : {});
 const str = (v) => (typeof v === "string" ? v : "");
 const num = (v) => typeof v === "number" && Number.isInteger(v) ? v : null;
 /** Codex adds `turn_id` and `model` to every event; Claude Code sends neither. */
 export function detectAgent(input) {
     return typeof input.turn_id === "string" || typeof input.model === "string" ? "codex" : "claude";
 }
+/** Shells, which need the PostToolUseFailure hook as well. */
+export const SHELL_TOOLS = ["Bash", "PowerShell"];
+/** The tools `normalize` understands, and so the tools the installed hooks must match. */
+export const TOOLS = {
+    claude: ["Write", "Edit", "MultiEdit", "NotebookEdit", ...SHELL_TOOLS],
+    codex: ["Bash", "apply_patch"],
+};
 /** Turn a raw hook payload from either agent into one event shape. */
 export function normalize(raw, agent) {
     const input = obj(raw);
@@ -111,19 +120,20 @@ export function parsePatch(text) {
     return changes;
 }
 function command(input, cmd, phase, agent) {
-    const base = {
-        kind: "command",
-        command: cmd,
-        exitCode: null,
-        output: "",
-        // Read from the command text, so a command that failed or answered with a bare string still counts.
-        changedFiles: phase === "pre" ? [] : shellChanges(cmd),
-    };
+    // Nothing has run yet, so there is no output and nothing has changed on disk.
     if (phase === "pre")
-        return base;
+        return { kind: "command", command: cmd, exitCode: null, output: "", changedFiles: [] };
+    // Read from the command text, so a command that failed or answered with a bare string still counts.
+    const fromText = shellChanges(cmd);
     if (input.hook_event_name === "PostToolUseFailure") {
         const err = str(input.error);
-        return { ...base, exitCode: leadingExit(err), output: err };
+        return {
+            kind: "command",
+            command: cmd,
+            exitCode: leadingExit(err),
+            output: err,
+            changedFiles: [...new Set(fromText)],
+        };
     }
     const resp = input.tool_response;
     const r = obj(resp);
@@ -138,14 +148,17 @@ function command(input, cmd, phase, agent) {
         (agent === "codex"
             ? (transcriptExit(str(input.transcript_path), str(input.tool_use_id)) ?? exitFromText(output))
             : (exitFromText(output) ?? 0));
-    if (typeof resp === "string")
-        return { ...base, exitCode, output };
     const diff = obj(r.bashEditDiff);
     const fromDiff = Array.isArray(diff.changedFiles)
         ? diff.changedFiles.filter((f) => typeof f === "string")
         : [];
-    const changedFiles = [...new Set([...fromDiff, ...base.changedFiles])];
-    return { ...base, exitCode, output, changedFiles };
+    return {
+        kind: "command",
+        command: cmd,
+        exitCode,
+        output,
+        changedFiles: [...new Set([...fromDiff, ...fromText])],
+    };
 }
 const NOT_A_FILE = /^(&\d*|\/dev\/(null|stdout|stderr|tty)|-)$/;
 /** The delimiter may be bare, quoted, or escaped as in `<<\EOF`. */
@@ -153,6 +166,9 @@ const HEREDOC = /<<-?\s*(?:\\|(["']?))([^\s"'<>|;&\\]+)\1[^\n]*\n[\s\S]*?\n\s*\2
 /** Heredoc bodies hold text, not shell: `> quote` in markdown, `rm x` in a script being written. */
 const withoutHeredocs = (cmd) => cmd.replace(HEREDOC, (m) => m.split("\n", 1)[0]);
 const unquote = (t) => t.replace(/^["']|["']$/g, "");
+/** Shell word splitting, kept in one place so every argument list splits the same way. */
+// Safe to share: `String.prototype.match` with a `/g` regex resets `lastIndex`. Do not use with `.test`.
+const TOKENS = /"[^"]*"|'[^']*'|\S+/g;
 /** Files a shell command copies, moves, deletes, or restores. No Write or Edit hook fires for these. */
 // ponytail: reads rm, cp, mv and git at command position, after `then`/`do`/`else`, or by path; `find -exec rm`, `xargs rm`, and a second heredoc on one command line are not seen
 export function fileOps(cmd) {
@@ -160,7 +176,7 @@ export function fileOps(cmd) {
     const found = withoutHeredocs(cmd).matchAll(/(?:^|[;&|(\n]|\b(?:then|do|else)\s)\s*(?:sudo\s+)?(?:[^\s;&|]*\/)?(rm|cp|mv|git\s+(?:rm|mv|checkout|restore))\s+([^;&|\n]*)/g);
     for (const m of found) {
         const op = m[1].replace(/\s+/g, " ");
-        let tokens = m[2].match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+        let tokens = m[2].match(TOKENS) ?? [];
         const redirect = tokens.findIndex((t) => /^\d?[<>]/.test(t));
         if (redirect >= 0)
             tokens = tokens.slice(0, redirect);
@@ -229,11 +245,11 @@ export function writeTargets(cmd) {
     for (const m of shell.matchAll(/(?:^|[\s;&|(])\d?>{1,2}\s*("[^"]*"|'[^']*'|[^\s;&|)<>]+)/g))
         out.push(m[1]);
     for (const m of shell.matchAll(/\btee\s+([^;&|)<>]+)/g))
-        for (const t of m[1].match(/"[^"]*"|'[^']*'|\S+/g) ?? [])
+        for (const t of m[1].match(TOKENS) ?? [])
             if (!t.startsWith("-"))
                 out.push(t);
     for (const m of cmd.matchAll(/\b(?:sed\s+-i\S*|perl\s+-p?i\S*)\s+([^;&|]+)/g)) {
-        const tokens = m[1].match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+        const tokens = m[1].match(TOKENS) ?? [];
         let skipNext = false;
         for (const t of tokens) {
             if (skipNext) {
@@ -263,17 +279,19 @@ function exitFromText(text) {
 const TAIL_BYTES = 512 * 1024;
 /**
  * Codex writes an `item_completed` record with the command's `exit_code` to the rollout file
- * before the hook runs. Only the tail of the file is read; one short retry covers a record that
- * is still being flushed.
+ * before the hook runs. Only the tail of the file is read; short retries cover a record that is
+ * still being flushed, and return as soon as it lands rather than sleeping out the whole budget.
  */
+const FLUSH_TRIES = 5;
+const FLUSH_WAIT_MS = 10;
 export function transcriptExit(transcript, toolUseId) {
     if (!transcript || !toolUseId || !existsSync(transcript))
         return null;
     for (let attempt = 0;; attempt++) {
         const found = scanTail(transcript, toolUseId);
-        if (found !== null || attempt === 1)
+        if (found !== null || attempt === FLUSH_TRIES)
             return found;
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, FLUSH_WAIT_MS);
     }
 }
 function scanTail(file, toolUseId) {

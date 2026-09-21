@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { sha } from "./checks.js";
 import { home } from "./config.js";
 
-export const JEV_MODEL = process.env.CANNY_JEV_MODEL ?? "jev-latest";
-export const JEV_URL = process.env.CANNY_JEV_URL ?? "https://api.typesafe.ai/v1/systemone";
+const JEV_MODEL = process.env.CANNY_JEV_MODEL ?? "jev-latest";
+const JEV_URL = process.env.CANNY_JEV_URL ?? "https://api.typesafe.ai/v1/systemone";
 const TIMEOUT_MS = Number(process.env.CANNY_JEV_TIMEOUT_MS ?? 3000);
 
 /** Jev drifts about 0.05 between runs, so only answers outside this band are acted on. */
@@ -35,7 +35,7 @@ export const noul = (instructions: string, criteria?: Noul["criteria"]): Noul =>
   ...(criteria && { criteria }),
 });
 
-export const hashOf = (body: unknown): string => sha(JSON.stringify(body));
+const hashOf = (body: unknown): string => sha(JSON.stringify(body));
 
 const cacheFile = (hash: string): string => join(home(), "jev", `${hash}.json`);
 

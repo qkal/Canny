@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, } from "node:fs";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { fingerprint, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
-import { home } from "./config.js";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { fingerprint, inside, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
+import { errorLog, home } from "./config.js";
 export const sessionsDir = () => join(home(), "sessions");
 export const sessionFile = (agent, session) => join(sessionsDir(), `${agent}-${session.replace(/[^\w.-]/g, "_")}.jsonl`);
 /** Paths are kept relative to the session cwd so ledgers read the same on any machine. */
@@ -70,6 +70,7 @@ export function read(file) {
     });
 }
 export function summarize(entries) {
+    const seen = new Set();
     const s = {
         codeFiles: [],
         verified: null,
@@ -89,8 +90,10 @@ export function summarize(entries) {
         if (f.code.length) {
             s.verified = null;
             for (const p of f.code)
-                if (!s.codeFiles.includes(p))
+                if (!seen.has(p)) {
+                    seen.add(p);
                     s.codeFiles.push(p);
+                }
         }
         if (f.kind === "command") {
             s.lastCommand = f;
@@ -107,14 +110,14 @@ export function summarize(entries) {
     return s;
 }
 /** The directory the agent was working in, which says which project a session belongs to. */
-export const sessionCwd = (entries) => entries.flatMap((e) => (e.type !== "jev" && e.cwd ? [e.cwd] : []))[0];
+export const sessionCwd = (entries) => {
+    for (const e of entries)
+        if (e.type !== "jev" && e.cwd)
+            return e.cwd;
+    return undefined;
+};
 /** One directory is the other, or sits inside it: the agent may run in a subdirectory of where the user stands, or the reverse. */
 export const sameProject = (a, b) => inside(a, b) || inside(b, a);
-/** `relative` gets the filesystem root and Windows drives right, which string prefixes do not. */
-const inside = (parent, child) => {
-    const r = relative(parent, child);
-    return r !== ".." && !r.startsWith(".." + sep) && !isAbsolute(r);
-};
 /** The most recent session recorded for the project at `cwd`. */
 // ponytail: reads whole ledgers newest first until one matches; add an index file if ~/.canny/sessions grows into the thousands
 export function latestSession(cwd) {
@@ -140,7 +143,7 @@ const real = (path) => {
 export function hookErrors() {
     let lines;
     try {
-        lines = readFileSync(join(home(), "errors.log"), "utf8").split("\n").filter(Boolean);
+        lines = readFileSync(errorLog(), "utf8").split("\n").filter(Boolean);
     }
     catch {
         // No log, or one that cannot be read: `status` still has a session to show.

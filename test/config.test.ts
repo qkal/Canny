@@ -7,7 +7,6 @@ import { loadConfig, trust } from "../src/config.js";
 let cwd: string;
 
 beforeEach(() => {
-  process.env.CANNY_HOME = mkdtempSync(join(tmpdir(), "canny-config-home-"));
   cwd = mkdtempSync(join(tmpdir(), "canny-config-repo-"));
 });
 

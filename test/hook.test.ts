@@ -33,7 +33,6 @@ const answer =
 const offline = answer(null);
 
 beforeEach(() => {
-  process.env.CANNY_HOME = mkdtempSync(join(tmpdir(), "canny-home-"));
   cwd = mkdtempSync(join(tmpdir(), "canny-repo-"));
   file = sessionFile("claude", "s1");
 });

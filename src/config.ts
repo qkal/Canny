@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { sha } from "./checks.js";
+import { isObj } from "./events.js";
 
 export interface Config {
   /** Regexes for commands that count as verification. Replaces the built-in list. */
@@ -20,11 +21,18 @@ export interface Config {
 /** Where sessions, the Jev cache, and the error log live. */
 export const home = (): string => process.env.CANNY_HOME ?? join(homedir(), ".canny");
 
+/** The hook fails open, so its crashes are only recorded here. */
+export const errorLog = (): string => join(home(), "errors.log");
+
 /** True when the user turned a check off through `allow`. */
 export const off = (config: Config, check: string): boolean => (config.allow ?? []).includes(check);
 
 /** Fields that can only loosen the guard, so they wait for `canny trust`. The rest are safe to obey. */
 export const WEAKENING = ["verify", "ignore", "rules", "allow"] as const;
+
+/** The weakening fields a config actually sets: what `trust` would enable, and what `status` reports as ignored. */
+export const weakened = (config: Config): string[] =>
+  WEAKENING.filter((f) => config[f] !== undefined);
 
 export interface Found {
   file: string;
@@ -42,7 +50,11 @@ export function findConfig(cwd: string): Found | null {
     const file = join(dir, ".canny.json");
     if (existsSync(file)) {
       const text = readText(file);
-      return { file, config: parse(text), trusted: text !== "" && store()[file] === sha(text) };
+      return {
+        file,
+        config: parse(text) as Config,
+        trusted: text !== "" && store()[file] === sha(text),
+      };
     }
     const parent = dirname(dir);
     if (dir === stop || parent === dir) return null;
@@ -73,21 +85,13 @@ export function trust(file: string): void {
 
 const trustFile = (): string => join(home(), "trusted.json");
 
-function store(): Record<string, string> {
-  try {
-    return (JSON.parse(readFileSync(trustFile(), "utf8")) as Record<string, string>) ?? {};
-  } catch {
-    return {};
-  }
-}
+const store = (): Record<string, string> => parse(readText(trustFile())) as Record<string, string>;
 
 /** Anything but a JSON object — `null`, an array, a number, junk — is treated as no config at all. */
-function parse(text: string): Config {
+function parse(text: string): Record<string, unknown> {
   try {
     const value: unknown = JSON.parse(text);
-    return value !== null && typeof value === "object" && !Array.isArray(value)
-      ? (value as Config)
-      : {};
+    return isObj(value) ? value : {};
   } catch {
     return {};
   }
