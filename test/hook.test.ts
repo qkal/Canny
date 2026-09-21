@@ -1,4 +1,5 @@
-import { mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -139,6 +140,23 @@ describe("stop gate", () => {
   });
 });
 
+describe("shell file operations in the ledger", () => {
+  it.each([
+    ["rm src/a.ts", "block"],
+    ["cp src/a.ts src/b.ts", "block"],
+    ["git checkout -- src/a.ts", "block"],
+    ["rm -rf node_modules /tmp/canny-scratch.json /var/tmp/x.json", "allow"],
+    ["rm ../../../../../../../../tmp/canny-scratch.ts", "allow"],
+  ])("%s then stop -> %s", async (command, kind) => {
+    await ran(command);
+    expect((await stop()).kind).toBe(kind);
+  });
+  it("counts files a failed command changed before it failed", async () => {
+    await ran("rm src/a.ts; false", 1);
+    expect((await stop()).kind).toBe("block");
+  });
+});
+
 describe("pre checks", () => {
   it("denies writing a secret unless allowed", async () => {
     const input = {
@@ -151,6 +169,83 @@ describe("pre checks", () => {
       message: expect.stringContaining("AWS access key"),
     });
     expect(await run(input, offline, { allow: ["secrets"] })).toEqual({ kind: "allow" });
+  });
+
+  const bash = (command: string, config: Config = {}) =>
+    run(
+      { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
+      offline,
+      config,
+    );
+
+  it("denies a shell command that writes a secret into a file, but not one that only uses it", async () => {
+    const key = "AKIAIOSFODNN7EXAMPLE";
+    expect(await bash(`echo "const k = '${key}'" > src/k.ts`)).toMatchObject({
+      kind: "deny",
+      message: expect.stringContaining("src/k.ts"),
+    });
+    expect(await bash(`cat > src/k.ts <<'EOF'\nconst k = '${key}'\nEOF`)).toMatchObject({
+      kind: "deny",
+    });
+    for (const prefix of ["X=1 ", "/bin/", "if true; then ", "(", "command ", "env X=1 "])
+      expect(await bash(`${prefix}echo AWS_KEY=${key} > src/config.ts`)).toMatchObject({
+        kind: "deny",
+      });
+    expect(await bash(`cat > src/k.ts <<\\EOF\nconst k = '${key}'\nEOF`)).toMatchObject({
+      kind: "deny",
+    });
+    expect(await bash(`aws configure set aws_access_key_id ${key}`)).toEqual({ kind: "allow" });
+    expect(await bash(`curl -H 'X-Key: ${key}' https://example.com > response.json`)).toEqual({
+      kind: "allow",
+    });
+    expect(await bash(`echo ${key} > src/k.ts`, { allow: ["secrets"] })).toEqual({ kind: "allow" });
+  });
+
+  it("lets a key into an env file only when git ignores that file", async () => {
+    execFileSync("git", ["init", "-q"], { cwd });
+    writeFileSync(join(cwd, ".gitignore"), ".env.local\n");
+    const write = (name: string) =>
+      run({
+        hook_event_name: "PreToolUse",
+        tool_name: "Write",
+        tool_input: { file_path: join(cwd, name), content: "AWS_KEY=AKIAIOSFODNN7EXAMPLE" },
+      });
+    expect(await write(".env.local")).toEqual({ kind: "allow" });
+    expect(await bash("cd sub && echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local")).toMatchObject({
+      kind: "deny",
+    });
+    expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE >> .env.local")).toEqual({
+      kind: "allow",
+    });
+    expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE | tee .env.local src/k.ts")).toMatchObject(
+      {
+        kind: "deny",
+        message: expect.stringContaining("src/k.ts"),
+      },
+    );
+    expect(await write(".env")).toMatchObject({ kind: "deny" });
+    writeFileSync(join(cwd, ".gitignore"), ".env.local\n.env.prod\n");
+    symlinkSync(join(cwd, "src-config.ts"), join(cwd, ".env.prod"));
+    expect(await write(".env.prod")).toMatchObject({ kind: "deny" });
+    expect(await write(".env.example")).toMatchObject({ kind: "deny" });
+  });
+
+  it.each([
+    ["rm test/a.test.ts", "ask"],
+    ["rm -rf tests", "ask"],
+    ["cd web && git rm src/a.spec.ts", "ask"],
+    ["mv test/a.test.ts /tmp/a.bak", "ask"],
+    ["mv test/a.test.ts test/b.test.ts", "allow"],
+    ["mv test/a.test.ts src/", "allow"],
+    ["if true; then rm test/a.test.ts; fi", "ask"],
+    ["/bin/rm test/a.test.ts", "ask"],
+    ["rm src/a.ts dist/a.js", "allow"],
+    ['git commit -m "rm test/a.test.ts"', "allow"],
+    ["cat > cleanup.sh <<'EOF'\nrm test/a.test.ts\nEOF", "allow"],
+  ])("%s -> %s", async (command, kind) => expect((await bash(command)).kind).toBe(kind));
+
+  it("leaves shell test removal alone when test-removal is off", async () => {
+    expect(await bash("rm test/a.test.ts", { allow: ["test-removal"] })).toEqual({ kind: "allow" });
   });
 
   it("asks before a test is removed, and Codex gets a deny", async () => {

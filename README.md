@@ -112,14 +112,14 @@ Claude Code also gets `PostToolUseFailure`, because that is where it reports a c
 
 ## What blocks and what only nags
 
-| Check                                                                                                                                                                                | When        | Decided by | Outcome                                        |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ---------- | ---------------------------------------------- |
-| A code file changed and no test, build, lint, or type-check command has passed since                                                                                                 | Stop        | ledger     | block                                          |
-| Content about to be written contains a secret shape: AWS, GitHub, Slack, Stripe, Google, OpenAI or Anthropic keys, private key blocks, or `password = "…"` with real-looking entropy | PreToolUse  | pattern    | deny                                           |
-| An edit removes test cases, adds `.skip`, `.only`, `xit`, `@pytest.mark.skip`, `t.Skip`, `#[ignore]`, `@Disabled`, `XCTSkip` and friends, or deletes a test file                     | PreToolUse  | pattern    | ask on Claude Code, deny on Codex              |
-| The same command fails with the same output again                                                                                                                                    | PostToolUse | ledger     | note on the second, deny on the fourth attempt |
-| "Does this edit break a rule in `CLAUDE.md` or `AGENTS.md`?"                                                                                                                         | PostToolUse | Jev        | note                                           |
-| "Does this message claim the work is done?"                                                                                                                                          | Stop        | Jev        | can only relax the done-gate                   |
+| Check                                                                                                                                                                                                                                                                                  | When        | Decided by | Outcome                                        |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------- | ---------------------------------------------- |
+| A code file changed and no test, build, lint, or type-check command has passed since                                                                                                                                                                                                   | Stop        | ledger     | block                                          |
+| Content about to be written contains a secret shape: AWS, GitHub, Slack, Stripe, Google, OpenAI or Anthropic keys, private key blocks, or `password = "…"` with real-looking entropy. Shell commands that write a file are read the same way. A `.env` file that git ignores is exempt | PreToolUse  | pattern    | deny                                           |
+| An edit removes test cases, adds `.skip`, `.only`, `xit`, `@pytest.mark.skip`, `t.Skip`, `#[ignore]`, `@Disabled`, `XCTSkip` and friends, or deletes a test file; or a shell command removes one with `rm`, `git rm`, or `mv`                                                          | PreToolUse  | pattern    | ask on Claude Code, deny on Codex              |
+| The same command fails with the same output again                                                                                                                                                                                                                                      | PostToolUse | ledger     | note on the second, deny on the fourth attempt |
+| "Does this edit break a rule in `CLAUDE.md` or `AGENTS.md`?"                                                                                                                                                                                                                           | PostToolUse | Jev        | note                                           |
+| "Does this message claim the work is done?"                                                                                                                                                                                                                                            | Stop        | Jev        | can only relax the done-gate                   |
 
 "Ask" means the user gets a permission prompt with Canny's reason. Codex has no such decision, so it gets a deny with the same reason; the reason says how to allow it in `.canny.json` if the removal was intended.
 
@@ -133,7 +133,7 @@ At every Stop, in this order:
 4. Jev is available and at least 90 percent sure the message is _not_ a "done" claim (the agent is asking a question, or reporting being stuck): allow.
 5. Otherwise: block, with a reason that names the files, the last command and its exit code, and what counts as a check.
 
-Step 4 is the only place Jev touches the gate, and it can only make it more permissive. Files an agent writes from the shell count as edits too: `cat > file <<'EOF'`, `tee`, `sed -i`, and `>` redirections are read out of every command, and Claude Code's own change list is used when it sends one.
+Step 4 is the only place Jev touches the gate, and it can only make it more permissive. Files an agent writes from the shell count as edits too: `cat > file <<'EOF'`, `tee`, `sed -i`, `>` redirections, `cp`, `mv`, `rm`, `git rm`, `git checkout -- file`, and `git restore` are read out of every command, and Claude Code's own change list is used when it sends one.
 
 ## Jev
 

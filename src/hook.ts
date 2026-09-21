@@ -1,6 +1,13 @@
-import { findSecrets, plain, testDamage, type TestDamage } from "./checks.js";
+import {
+  findSecrets,
+  isPrivateEnv,
+  isTestFile,
+  plain,
+  testDamage,
+  type TestDamage,
+} from "./checks.js";
 import { off, type Config } from "./config.js";
-import type { Ctx, FileChange } from "./events.js";
+import { fileOps, shellWrites, type Ctx, type FileChange } from "./events.js";
 import { NO, YES, noul, type Judge } from "./jev.js";
 import { append, read, rel, summarize, toFact, type Fact, type Summary } from "./ledger.js";
 import { loadRules } from "./rules.js";
@@ -44,14 +51,34 @@ function pre(ctx: Ctx, deps: Deps): Decision {
   if (event.kind === "edit") {
     for (const c of event.changes) {
       const hits = off(deps.config, "secrets") ? [] : findSecrets(c.added);
-      if (hits.length)
-        return record(ctx, deps, {
-          kind: "deny",
-          message: `Canny: ${rel(ctx.cwd, c.path)} would contain what looks like a ${hits.join(" and a ")}. Read the value from the environment or an uncommitted config file instead of writing it into the file.`,
-        });
+      if (hits.length && !isPrivateEnv(c.path, ctx.cwd))
+        return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, [c.path], hits) });
       const damage = off(deps.config, "test-removal") ? null : testDamage(c, ctx.cwd);
       if (damage) return record(ctx, deps, { kind: "ask", message: describe(ctx, c, damage) });
     }
+  }
+  // The shell reaches the same files with no Write or Edit event, so the same two checks read the command.
+  if (event.kind === "command") {
+    // After a `cd`, a relative target is no longer relative to `ctx.cwd`, so no env file is exempt.
+    const moved = /(?:^|[;&|(\n])\s*(?:cd|pushd)\s/.test(event.command);
+    for (const w of off(deps.config, "secrets") ? [] : shellWrites(event.command)) {
+      const hits = findSecrets(w.text);
+      const targets = hits.length
+        ? w.targets.filter((p) => moved || !isPrivateEnv(p, ctx.cwd))
+        : [];
+      if (targets.length)
+        return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, targets, hits) });
+    }
+    const ops = off(deps.config, "test-removal") ? null : fileOps(event.command);
+    const gone = [
+      ...(ops?.removed ?? []),
+      ...(ops?.moved ?? []).filter(([, to]) => !isTestFile(to)).map(([from]) => from),
+    ].filter(isTestFile);
+    if (gone.length)
+      return record(ctx, deps, {
+        kind: "ask",
+        message: `Canny: this command removes ${list(gone.map((p) => rel(ctx.cwd, p)))} from the tests. ${TESTS_STAY}`,
+      });
   }
   if (event.kind === "command" && !off(deps.config, "repeat-failure")) {
     const s = summarize(read(deps.file));
@@ -180,7 +207,18 @@ function describe(ctx: Ctx, c: FileChange, d: TestDamage): string {
       ]
         .filter(Boolean)
         .join(" and ");
-  return `Canny: this edit ${what}. Tests are only removed or skipped when the user asked for it. Fix the code the test covers instead.`;
+  return `Canny: this edit ${what}. ${TESTS_STAY}`;
+}
+
+const TESTS_STAY =
+  "Tests are only removed or skipped when the user asked for it. Fix the code the test covers instead.";
+
+function secretMessage(ctx: Ctx, paths: string[], hits: string[]): string {
+  const files = list(paths.map((p) => rel(ctx.cwd, p)));
+  const advice = paths.some((p) => /(^|\/)\.env/.test(p))
+    ? "An env file is only the place for it once git ignores the file, and a committed template never is."
+    : "Read the value from the environment or a git-ignored env file instead of writing it into the file.";
+  return `Canny: ${files} would contain what looks like a ${hits.join(" and a ")}. ${advice}`;
 }
 
 /** Hook JSON for the agent that sent the event. Codex has no "ask", so it gets a deny with the same reason. */

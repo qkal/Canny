@@ -1,6 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 const VERIFY = [
     /\b(pytest|vitest|jest|mocha|ava|cypress|playwright test|go test|cargo test|swift test|xcodebuild test|gradlew? test|mvn test|dotnet test|rspec|phpunit|mix test|bun test|deno test|node --test|node --run test|npm test|pnpm test|yarn test|make test|just test|python -m pytest|python -m unittest|npm run test|pnpm run test|yarn run test|tox|nox)\b/,
     /\b(tsc|cargo build|go build|go vet|swift build|xcodebuild|gradlew? (build|assemble)|mvn (package|compile|verify)|dotnet build|npm run build|pnpm build|pnpm run build|yarn build|make build|just build|bun run build|vite build|next build|esbuild|webpack)\b/,
@@ -46,8 +47,13 @@ export function isVerify(command, config) {
             : VERIFY.some((re) => re.test(part));
     });
 }
-const IGNORE = /(^|\/)docs?\/|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
-/** Files whose edits never need a passing check: docs, images, lockfiles, logs, and anything in `config.ignore`. */
+const IGNORE = /(^|\/)docs?\/|(^|\/)(node_modules|\.venv|__pycache__|coverage|\.cache|\.git)(\/|$)|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
+/** Scratch space outside the project. A project that itself lives under a temp directory is not scratch. */
+export const isScratch = (path, cwd) => {
+    const abs = resolve(cwd, path);
+    return (/^(\/private)?\/(tmp|var\/tmp|var\/folders)\//.test(abs) && relative(cwd, abs).startsWith(".."));
+};
+/** Files whose edits never need a passing check: docs, images, lockfiles, logs, installed packages, and anything in `config.ignore`. */
 export function isIgnored(path, config) {
     return IGNORE.test(path) || (config.ignore ?? []).some((p) => safeRegex(p)?.test(path));
 }
@@ -64,6 +70,23 @@ const SECRETS = [
         /(?:api[_-]?key|secret|token|passw(?:or)?d)\s*[:=]\s*["'`](?=[^"'`\s]*\d)(?=[^"'`\s]*[A-Za-z])[^"'`\s]{16,}["'`]/i,
     ],
 ];
+const ENV_FILE = /(^|\/)\.env(\.[^/]*)?$/;
+const ENV_TEMPLATE = /\.(example|sample|template|dist)$/;
+/** A `.env` file git ignores is where keys belong. Templates are committed, so they never qualify. */
+export function isPrivateEnv(path, cwd) {
+    if (!ENV_FILE.test(path) || ENV_TEMPLATE.test(path))
+        return false;
+    // A write through a symlink lands in its target, which may be a tracked file.
+    if (lstatSync(resolve(cwd, path), { throwIfNoEntry: false })?.isSymbolicLink())
+        return false;
+    try {
+        execFileSync("git", ["check-ignore", "-q", path], { cwd, stdio: "ignore", timeout: 2000 });
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 /** Labels of secret shapes found in text about to be written. */
 export function findSecrets(text) {
     return SECRETS.filter(([, re]) => re.test(text)).map(([label]) => label);
@@ -75,7 +98,8 @@ const SKIP = /\.(?:skip|todo|only)\s*\(|\b[xf](?:it|test|describe)\s*\(|@pytest\
 const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
 /** Text safe to store and print: command output can carry escape sequences that redraw the terminal. */
 export const plain = (text) => text.replace(ANSI, "").replace(/\p{Cc}+/gu, " ");
-export const isTestFile = (path) => TEST_PATH.test(path);
+/** A bare directory name such as `tests` counts, so `rm -rf tests` is seen. */
+export const isTestFile = (path) => TEST_PATH.test(path) || TEST_PATH.test(path + "/");
 const count = (re, text) => (text.match(re) ?? []).length;
 /** Test cases removed, skip or focus markers added, or the whole test file deleted. Null when nothing is damaged. */
 export function testDamage(change, cwd) {
