@@ -166,9 +166,11 @@ const HEREDOC = /<<-?\s*(?:\\|(["']?))([^\s"'<>|;&\\]+)\1[^\n]*\n[\s\S]*?\n\s*\2
 /** Heredoc bodies hold text, not shell: `> quote` in markdown, `rm x` in a script being written. */
 const withoutHeredocs = (cmd) => cmd.replace(HEREDOC, (m) => m.split("\n", 1)[0]);
 const unquote = (t) => t.replace(/^["']|["']$/g, "");
+/** A quoted shell string. Inside double quotes `\"` is text, not the end: `echo "{\"a\": 1};" > f`. */
+const QUOTED = String.raw `"(?:\\.|[^"\\])*"|'[^']*'`;
 /** Shell word splitting, kept in one place so every argument list splits the same way. */
 // Safe to share: `String.prototype.match` with a `/g` regex resets `lastIndex`. Do not use with `.test`.
-const TOKENS = /"[^"]*"|'[^']*'|\S+/g;
+const TOKENS = new RegExp(String.raw `${QUOTED}|\S+`, "g");
 /** Files a shell command copies, moves, deletes, or restores. No Write or Edit hook fires for these. */
 // ponytail: reads rm, cp, mv and git at command position, after `then`/`do`/`else`, or by path; `find -exec rm`, `xargs rm`, and a second heredoc on one command line are not seen
 export function fileOps(cmd) {
@@ -215,6 +217,15 @@ const shellChanges = (cmd) => {
 /** `echo` or `printf` as a word anywhere in the statement, so wrappers such as `command`, `env`, and `then` need no list. */
 // ponytail: text written by an interpreter (`python -c`, `node -e`) is not read; add when it shows up in ledgers
 const PRINTS = /(?:^|[\s|(/])(?:echo|printf)\s/;
+/** Split at `;`, `&&`, `||`, and newlines, but not inside quotes: written code is full of `;`. */
+function statements(cmd) {
+    const out = [""];
+    cmd.split(new RegExp(`(${QUOTED})`)).forEach((part, i) => {
+        const pieces = i % 2 ? [part] : part.split(/&&|\|\||[;\n]/);
+        out.push(out.pop() + pieces[0], ...pieces.slice(1));
+    });
+    return out;
+}
 /**
  * Literal text a command puts into files, with the files it goes to: heredoc bodies and `echo` or
  * `printf` statements that redirect or pipe into `tee`. A key in a `curl` header whose response is
@@ -226,11 +237,11 @@ export function shellWrites(cmd) {
         // The match starts at `<<`; the redirect can sit on either side of it on the same line.
         const opener = m[0].split("\n", 1)[0];
         const head = cmd.slice(cmd.lastIndexOf("\n", m.index) + 1, m.index) + opener;
-        out.push({ text: m[0].slice(opener.length), targets: writeTargets(head) });
+        out.push({ text: m[0].slice(opener.length), head, targets: writeTargets(head) });
     }
-    for (const statement of withoutHeredocs(cmd).split(/&&|\|\||[;\n]/))
+    for (const statement of statements(withoutHeredocs(cmd)))
         if (PRINTS.test(statement))
-            out.push({ text: statement, targets: writeTargets(statement) });
+            out.push({ text: statement, head: statement, targets: writeTargets(statement) });
     return out.filter((w) => w.targets.length);
 }
 /**
@@ -241,28 +252,91 @@ export function writeTargets(cmd) {
     const out = [];
     // Quoted strings hold text, not redirections: `a > b` in a commit message. A quoted string right
     // after `>` or `tee` is a file name and stays.
-    const shell = withoutHeredocs(cmd).replace(/(>\s*|\btee\s+(?:-[ai]+\s+)*)?("[^"]*"|'[^']*')/g, (m, keep) => (keep ? m : ""));
-    for (const m of shell.matchAll(/(?:^|[\s;&|(])\d?>{1,2}\s*("[^"]*"|'[^']*'|[^\s;&|)<>]+)/g))
+    const shell = withoutHeredocs(cmd).replace(new RegExp(String.raw `(>\s*|\btee\s+(?:-[ai]+\s+)*)?(${QUOTED})`, "g"), (m, keep) => (keep ? m : ""));
+    const redirect = new RegExp(String.raw `(?:^|[\s;&|(])\d?>{1,2}\s*(${QUOTED}|[^\s;&|)<>]+)`, "g");
+    for (const m of shell.matchAll(redirect))
         out.push(m[1]);
     for (const m of shell.matchAll(/\btee\s+([^;&|)<>]+)/g))
         for (const t of m[1].match(TOKENS) ?? [])
             if (!t.startsWith("-"))
                 out.push(t);
-    for (const m of cmd.matchAll(/\b(?:sed\s+-i\S*|perl\s+-p?i\S*)\s+([^;&|]+)/g)) {
-        const tokens = m[1].match(TOKENS) ?? [];
-        let skipNext = false;
-        for (const t of tokens) {
-            if (skipNext) {
-                skipNext = false;
-                continue;
-            }
-            if (t === "-e" || t === "-f")
-                skipNext = true;
-            else if (!t.startsWith("-") && !/^["']/.test(t) && !/^s[/|#]/.test(t))
-                out.push(t);
-        }
-    }
+    for (const e of inPlace(cmd))
+        out.push(...e.files);
     return out.map(unquote).filter((t) => t && !NOT_A_FILE.test(t));
+}
+/** `-i`, alone or in a cluster such as `-Ei` or `-pi.bak`. Perl's `-M` and `-I` take a word, not flags. */
+const IN_PLACE = { sed: /^(?:-[a-zA-Z]*i|--in-place)/, perl: /^-(?![MI])[a-zA-Z0]*i/ };
+/** Options whose value is the script: `-e`, `-f`, a cluster ending in one (`-pie`), and sed's long forms. */
+const TAKES_SCRIPT = /^(?:-[a-zA-Z]*[ef]|--expression|--file)$/;
+/** Each in-place `sed` or `perl` in a command: its scripts, and the files it rewrites. */
+function inPlace(cmd) {
+    const out = [];
+    // Quoted strings are whole arguments: a script holds `;` and `|` that end nothing.
+    const call = new RegExp(String.raw `\b(sed|perl)\s+((?:${QUOTED}|[^;&|\n"'])+)`, "g");
+    for (const m of cmd.matchAll(call)) {
+        const flag = IN_PLACE[m[1]];
+        const tokens = m[2].match(TOKENS) ?? [];
+        if (!tokens.some((t) => flag.test(t)))
+            continue;
+        const edit = { scripts: [], files: [] };
+        const named = tokens.some((t) => TAKES_SCRIPT.test(t) || t.startsWith("--expression="));
+        for (const [i, t] of tokens.entries()) {
+            const before = tokens[i - 1] ?? "";
+            if (/^\d?[<>]/.test(t))
+                break;
+            if (TAKES_SCRIPT.test(before))
+                edit.scripts.push(unquote(t));
+            else if (t.startsWith("--expression="))
+                edit.scripts.push(unquote(t.slice(13)));
+            else if (t.startsWith("-"))
+                continue;
+            // BSD sed takes the backup suffix as its own argument: `sed -i '' …`, `sed -i .bak …`.
+            else if (flag.test(before) && /^(?:''|""|\.\w+)$/.test(t))
+                continue;
+            // With no `-e`, the first operand is the script and the rest are files, quoted or not.
+            else if (!named && !edit.scripts.length)
+                edit.scripts.push(unquote(t));
+            else
+                edit.files.push(t);
+        }
+        out.push(edit);
+    }
+    return out;
+}
+// An address may come first: `/it(/s/a/b/`, `1,5s/a/b/`, `$s/a/b/`.
+const SUBSTITUTE = /(?:^|[;{/\d$]|\s)\s*s([/|#,])((?:\\.|(?!\1)[^\\])*)\1((?:\\.|(?!\1)[^\\])*)\1/g;
+/**
+ * What a shell command does to files, in the shape of an edit, so the checks that read edits read
+ * it too. A redirect replaces the file unless it appends. An in-place script is not run: the text
+ * its `s` commands take out and put in, and the pattern of a delete, stand in for the change.
+ */
+// ponytail: a delete by line number (`5,10d`) and a script in a file (`-f`) say nothing about the text they remove
+export function shellEdits(cmd) {
+    const changes = [];
+    for (const w of shellWrites(cmd)) {
+        const wholeFile = !/>>|\btee\s+(?:-\S+\s+)*(?:-[a-zA-Z]*a|--append)\b/.test(
+        // Quoted text is payload, not shell: `echo ">>" > file` replaces the file.
+        w.head.replace(new RegExp(QUOTED, "g"), ""));
+        for (const path of w.targets)
+            changes.push({ path, added: w.text, removed: "", wholeFile });
+    }
+    for (const e of inPlace(cmd)) {
+        let added = "";
+        let removed = "";
+        for (const script of e.scripts) {
+            for (const m of script.matchAll(SUBSTITUTE)) {
+                removed += m[2] + "\n";
+                added += m[3] + "\n";
+            }
+            if (/d\s*\}?\s*$/.test(script) && !/^s\W/.test(script))
+                removed += script + "\n";
+        }
+        // Regex escapes are not part of the text: `\bit\(` takes out `it(`.
+        const text = (t) => t.replace(/\\(\W)/g, "$1").replace(/\\\w/g, " ");
+        for (const path of e.files.map(unquote))
+            changes.push({ path, added: text(added), removed: text(removed) });
+    }
+    return changes;
 }
 /** Claude Code's PostToolUseFailure error starts with `Exit code N` when the command ran at all. */
 function leadingExit(err) {

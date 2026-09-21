@@ -198,6 +198,8 @@ describe("pre checks", () => {
       kind: "deny",
       message: expect.stringContaining("src/k.ts"),
     });
+    expect((await bash(`echo "const k = '${key}';" > src/k.ts`)).kind).toBe("deny");
+    expect((await bash(`echo "a 5\\" pipe; const k = '${key}'" > src/k.ts`)).kind).toBe("deny");
     expect(await bash(`cat > src/k.ts <<'EOF'\nconst k = '${key}'\nEOF`)).toMatchObject({
       kind: "deny",
     });
@@ -311,6 +313,45 @@ describe("pre checks", () => {
     ["cat > cleanup.sh <<'EOF'\nrm test/a.test.ts\nEOF", "allow"],
   ])("%s -> %s", async (command, kind) => expect((await bash(command)).kind).toBe(kind));
 
+  it("reads what a shell command does to a test file the way it reads an edit", async () => {
+    mkdirSync(join(cwd, "test"));
+    writeFileSync(join(cwd, "test/a.test.ts"), "it('a', f);\nit('b', f);\n");
+    const kinds = async (commands: string[]) =>
+      Promise.all(commands.map(async (c) => (await bash(c)).kind));
+    expect(
+      await kinds([
+        "sed -i '' '/it(/d' test/a.test.ts",
+        "sed -i 's/it(/it.skip(/' test/a.test.ts",
+        "perl -pi -e 's/\\bit\\(/xit(/' test/a.test.ts",
+        "cat > test/a.test.ts <<'EOF'\nit('a', f);\nEOF",
+        "echo \"it.only('c', f);\" >> test/a.test.ts",
+        "sed -i '/it(/d; /test(/d' test/a.test.ts",
+        "sed -i 's/it(.*//g' 'test/a.test.ts'",
+        "sed -E --in-place 's/it\\(/it.skip(/' test/a.test.ts",
+        "sed -i --expression='s/it(/it.skip(/' test/a.test.ts",
+        "perl -w -pi.bak -e 's/\\bit\\(/xit(/' test/a.test.ts",
+        "echo \"it('a', f);\" | tee --output-error=warn test/a.test.ts",
+        "sed -i '/it(/s/it(/it.skip(/' test/a.test.ts",
+        "sed -i '1,5s/it(/it.skip(/' test/a.test.ts",
+        "echo \">> it('a', f);\" > test/a.test.ts",
+      ]),
+    ).toEqual(Array(14).fill("ask"));
+    expect(
+      await kinds([
+        "sed -i 's/oldName/newName/g' test/a.test.ts",
+        "sed -i '/it(/d' src/a.ts",
+        "cat > test/a.test.ts <<'EOF'\nit('a', f);\nit('b', f);\nit('c', f);\nEOF",
+        "echo \"it('c', f);\" >> test/a.test.ts",
+        "echo \"it('c', f);\" | tee -a test/a.test.ts",
+        "echo \"it('c', f);\" | tee --append test/a.test.ts",
+        "sed 's/it(/it.skip(/' test/a.test.ts | head",
+      ]),
+    ).toEqual(Array(7).fill("allow"));
+    expect(await bash("sed -i '/it(/d' test/a.test.ts")).toMatchObject({
+      message: expect.stringContaining("this command removes 1 test case from test/a.test.ts"),
+    });
+  });
+
   it("leaves shell test removal alone when test-removal is off", async () => {
     expect(await bash("rm test/a.test.ts", { allow: ["test-removal"] })).toEqual({ kind: "allow" });
   });
@@ -358,6 +399,33 @@ describe("pre checks", () => {
 });
 
 describe("rule check", () => {
+  it("checks text a shell command writes against the project rules", async () => {
+    writeFileSync(join(cwd, "CLAUDE.md"), "- Never hardcode model IDs.\n");
+    const asked: unknown[] = [];
+    const judge: Judge = async (state) => {
+      asked.push(state);
+      return { rule_0: 0.95 };
+    };
+    const noted = await run(
+      {
+        hook_event_name: "PostToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "cat > src/a.ts <<'EOF'\nmodel = 'claude-3'\nEOF" },
+        tool_response: { stdout: "", stderr: "" },
+      },
+      judge,
+    );
+    expect(noted).toMatchObject({
+      kind: "note",
+      message: expect.stringContaining("- Never hardcode model IDs."),
+    });
+    expect(asked[0]).toMatchObject({
+      change: { file: "src/a.ts", added: expect.stringContaining("model = 'claude-3'") },
+    });
+    expect(await ran("pnpm test")).toEqual({ kind: "allow" });
+    expect(asked).toHaveLength(1);
+  });
+
   it("turns a confident Jev yes into a note naming the rule", async () => {
     writeFileSync(join(cwd, "CLAUDE.md"), "- Never hardcode model IDs.\n- Prefer pnpm.\n");
     const asked: unknown[] = [];

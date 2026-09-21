@@ -1,6 +1,6 @@
 import { findSecrets, isPrivateEnv, isTestFile, plain, testDamage, } from "./checks.js";
 import { off } from "./config.js";
-import { fileOps, shellWrites } from "./events.js";
+import { fileOps, shellEdits, shellWrites } from "./events.js";
 import { NO, YES, noul } from "./jev.js";
 import { append, read, rel, summarize, toFact } from "./ledger.js";
 import { loadRules } from "./rules.js";
@@ -67,6 +67,11 @@ function pre(ctx, deps) {
                 kind: "ask",
                 message: `Canny: this command removes ${list(gone.map((p) => rel(cwd, p)))} from the tests. ${TESTS_STAY}`,
             });
+        for (const c of shellEdits(event.command)) {
+            const damage = testDamage(c, cwd);
+            if (damage)
+                return record(ctx, deps, { kind: "ask", message: describe(ctx, c, damage, "command") });
+        }
     }
     if (!off(deps.config, "repeat-failure")) {
         const command = plain(event.command);
@@ -94,7 +99,10 @@ async function post(ctx, deps) {
                     message: `Canny: \`${short(fact.command)}\` has now failed ${n} times with the same output. Repeating it will not help; change the approach.`,
                 });
         }
-        return { kind: "allow" };
+        // Text the shell wrote is held to the project rules like any other edit.
+        return event.kind === "command"
+            ? ruleCheck(ctx, deps, shellEdits(event.command))
+            : { kind: "allow" };
     }
     if (event.kind === "edit")
         return ruleCheck(ctx, deps, event.changes);
@@ -102,7 +110,7 @@ async function post(ctx, deps) {
 }
 /** One Noul per project rule over each change, all changes in parallel. A confident yes becomes a note. */
 async function ruleCheck(ctx, deps, changes) {
-    const rules = loadRules(ctx.cwd, deps.config);
+    const rules = changes.length ? loadRules(ctx.cwd, deps.config) : null;
     if (!rules)
         return { kind: "allow" };
     const questions = Object.fromEntries(rules.rules.map((_, i) => [
@@ -170,7 +178,7 @@ function blockReason(s, config) {
         : " If no check applies to this change, say so explicitly and stop again.";
     return `Canny: ${list(s.codeFiles)} changed, but no check has passed since the last edit.${last} Run the project's checks and fix what fails before finishing.${counts}${tail}`;
 }
-function describe(ctx, c, d) {
+function describe(ctx, c, d, by = "edit") {
     const file = rel(ctx.cwd, c.path);
     const what = d.deleted
         ? `deletes the test file ${file}`
@@ -184,7 +192,7 @@ function describe(ctx, c, d) {
         ]
             .filter(Boolean)
             .join(" and ");
-    return `Canny: this edit ${what}. ${TESTS_STAY}`;
+    return `Canny: this ${by} ${what}. ${TESTS_STAY}`;
 }
 const TESTS_STAY = "Tests are only removed or skipped when the user asked for it. Fix the code the test covers instead.";
 function secretMessage(ctx, paths, hits) {
