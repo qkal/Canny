@@ -96,9 +96,15 @@ export function append(file: string, entry: Entry): void {
   appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 });
 }
 
+/** A ledger that is missing, unreadable, or not a file reads as empty, so one bad file never hides the others. */
 export function read(file: string): Entry[] {
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+  return text
     .split("\n")
     .filter(Boolean)
     .flatMap((line) => {
@@ -159,8 +165,13 @@ export const sessionCwd = (entries: Entry[]): string | undefined =>
   entries.flatMap((e) => (e.type !== "jev" && e.cwd ? [e.cwd] : []))[0];
 
 /** One directory is the other, or sits inside it: the agent may run in a subdirectory of where the user stands, or the reverse. */
-export const sameProject = (a: string, b: string): boolean =>
-  a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
+export const sameProject = (a: string, b: string): boolean => inside(a, b) || inside(b, a);
+
+/** `relative` gets the filesystem root and Windows drives right, which string prefixes do not. */
+const inside = (parent: string, child: string): boolean => {
+  const r = relative(parent, child);
+  return r !== ".." && !r.startsWith(".." + sep) && !isAbsolute(r);
+};
 
 /** The most recent session recorded for the project at `cwd`. */
 // ponytail: reads whole ledgers newest first until one matches; add an index file if ~/.canny/sessions grows into the thousands

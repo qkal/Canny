@@ -399,6 +399,14 @@ describe("which project a session belongs to", () => {
   it("does not take a sibling with the same prefix for the same project", () => {
     expect(sameProject("/work/api", "/work/api-v2")).toBe(false);
     expect(sameProject("/work/api/web", "/work/api")).toBe(true);
+    expect(sameProject("/", "/work/api")).toBe(true);
+    expect(sameProject("/work/api", "/work/..api")).toBe(false);
+  });
+
+  it("reads past a ledger that cannot be read", async () => {
+    await edit();
+    mkdirSync(join(dirname(file), "zz-newer.jsonl"));
+    expect(latestSession(cwd)?.file).toBe(file);
   });
 
   it("skips ledgers written before the project was recorded", () => {
