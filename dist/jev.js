@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sha } from "./checks.js";
@@ -21,7 +22,9 @@ const cacheFile = (hash) => join(home(), "jev", `${hash}.json`);
  * A cache that cannot be written is not an error — the answer is already in hand, so it is kept.
  */
 function writeCache(file, text) {
-    const tmp = `${file}.${process.pid}.tmp`;
+    // Unique per write rather than per process: two hosts sharing a home directory can hold the same
+    // pid at once, and one writer's cleanup must never remove another's temporary file.
+    const tmp = `${file}.${randomUUID()}.tmp`;
     try {
         mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
         // Exclusive: a path already there, such as another hook's temp file, is never written through.
