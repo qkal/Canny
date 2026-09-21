@@ -32,6 +32,16 @@ Jev never blocks. A "done" claim is refused because the ledger holds no passing 
 
 The same session always produces the same verdict, and `canny replay` proves it from the ledger.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=qkal%2Fcanny&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=qkal%2Fcanny&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=qkal%2Fcanny&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=qkal%2Fcanny&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## Install by pasting a prompt
 
 Canny is not on npm. Your agent installs it from this repository: a clone and one command. The compiled CLI is committed, so there is nothing to build. You need git and Node 22 or newer.
