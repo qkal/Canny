@@ -26,9 +26,10 @@ const RUNS_A_HOOK = /\shook\s+--agent\s+(?:claude|codex)\b/;
  * `hook --agent` arguments identifies the `node "<checkout>/dist/cli.js"` form; `cli.js` alone would
  * also claim another tool's hook. A command that starts with `canny hook --agent …` counts without it.
  */
-export const isCannyHook = (h: Hook): boolean => {
-  const command = h.command ?? "";
-  return RUNS_CANNY.test(command) || (h.statusMessage === STATUS && RUNS_A_HOOK.test(command));
+export const isCannyHook = (h: Hook | null): boolean => {
+  // Parsed JSON: an entry can be `null` or a bare string, which is not Canny's and stays.
+  const command = String(h?.command ?? "");
+  return RUNS_CANNY.test(command) || (h?.statusMessage === STATUS && RUNS_A_HOOK.test(command));
 };
 
 /** The hook entries for one agent. `command` is how to run this CLI, without the `hook` arguments. */

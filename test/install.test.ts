@@ -105,6 +105,15 @@ describe("merge", () => {
     expect(merge(file, {})).toBe(`no Canny hooks in ${file}`);
   });
 
+  it("keeps hook entries it cannot read and still removes its own", () => {
+    merge(file, ours);
+    const odd = json() as { hooks: Record<string, { hooks: unknown[] }[]> };
+    odd.hooks.Stop![0]!.hooks.push(null, "text");
+    writeFileSync(file, JSON.stringify(odd));
+    merge(file, {});
+    expect(json()).toEqual({ hooks: { Stop: [{ hooks: [null, "text"] }] } });
+  });
+
   it("reads a null hooks value as no hooks", () => {
     file = join(dir, "s.json");
     writeFileSync(file, '{"model":"x","hooks":null}');

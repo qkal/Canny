@@ -9,8 +9,9 @@ const RUNS_A_HOOK = /\shook\s+--agent\s+(?:claude|codex)\b/;
  * also claim another tool's hook. A command that starts with `canny hook --agent …` counts without it.
  */
 export const isCannyHook = (h) => {
-    const command = h.command ?? "";
-    return RUNS_CANNY.test(command) || (h.statusMessage === STATUS && RUNS_A_HOOK.test(command));
+    // Parsed JSON: an entry can be `null` or a bare string, which is not Canny's and stays.
+    const command = String(h?.command ?? "");
+    return RUNS_CANNY.test(command) || (h?.statusMessage === STATUS && RUNS_A_HOOK.test(command));
 };
 /** The hook entries for one agent. `command` is how to run this CLI, without the `hook` arguments. */
 export function hookConfig(agent, command) {
