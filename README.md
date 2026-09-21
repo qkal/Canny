@@ -32,6 +32,16 @@ Jev never blocks. A "done" claim is refused because the ledger holds no passing 
 
 The same session always produces the same verdict, and `canny replay` proves it from the ledger.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=qkal%2Fcanny&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=qkal%2Fcanny&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=qkal%2Fcanny&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=qkal%2Fcanny&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## Install by pasting a prompt
 
 Canny is not on npm. Your agent installs it from this repository: a clone and one command. The compiled CLI is committed, so there is nothing to build. You need git and Node 22 or newer.
@@ -225,7 +235,7 @@ Both were verified against live sessions: a Stop was blocked, the agent ran the 
 
 ## Does it help?
 
-Honest answer: it stops the specific failure at the top of this page, and it does so deterministically. Whether it improves an agent's work over a whole project has not been measured yet. [pi-warden](https://github.com/DevMortimer/pi-warden), which does something similar for the Pi agent, published an A/B run of 4 versus 3 rule violations, which is not a difference. The harness for that measurement is in [`bench/`](bench/run.mjs): `node bench/run.mjs --agent claude --runs 5` gives each task in `bench/tasks` to a headless agent in a scratch directory, with and without Canny, then puts the task's own tests back and runs them. It has two tasks so far and no published numbers; a task is a small project plus a `prompt.txt`. If you run Canny on real work and keep the ledgers, they are the data.
+Honest answer: it stops the specific failure at the top of this page, and it does so deterministically. Whether it improves an agent's work over a whole project has not been measured yet. [pi-warden](https://github.com/DevMortimer/pi-warden), which does something similar for the Pi agent, published an A/B run of 4 versus 3 rule violations, which is not a difference. The harness for that measurement is in [`bench/`](bench/run.mjs): `node bench/run.mjs --agent claude --runs 5` gives each task in `bench/tasks` to a headless agent in a scratch directory, with and without Canny, then puts the task's own tests back and runs them. It has five tasks: a feature whose edge cases are only in the tests, a red suite after a refactor with two root causes, a rename that reaches four modules, a behaviour change where a test has to change, and an API key handed over in the prompt. A task is a small project plus a `prompt.txt`, a `solution.sh` that proves it can be solved, and, when the tests themselves must change, a `check/` directory the agent never sees. The first runs, with Claude Code on the two original tasks, passed 10 of 10 in both arms, which says those tasks were too easy for that model, not that Canny helps. If you run Canny on real work and keep the ledgers, they are the data.
 
 The Jev half was built against TypeSafe's API reference and their SDK source and is covered by tests with a mocked endpoint. If you have a key and something misbehaves, open an issue with the `canny status` output.
 

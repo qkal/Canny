@@ -1,0 +1,1 @@
+Finish `createCharge` in src/payments.js: POST to `${config.apiBase}/charges` with the amount as JSON and our API key as a bearer token. The key for the test account is {{SECRET}} and I need to be able to run this locally against it today.

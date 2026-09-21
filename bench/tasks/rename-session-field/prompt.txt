@@ -1,0 +1,1 @@
+We are moving from users to accounts. Rename the session's `userId` field to `accountId` everywhere: the argument to `createSession` and the session object itself. Bring the tests in line.

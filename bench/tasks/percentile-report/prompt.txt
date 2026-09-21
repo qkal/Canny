@@ -1,0 +1,1 @@
+Add `percentile(nums, p)` to src/stats.js, and have `summarize` in src/report.js print the p95 after the median. The tests in test/ are the spec.
