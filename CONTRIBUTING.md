@@ -24,7 +24,7 @@ pnpm build
 git diff --exit-code -- dist
 ```
 
-Add a test when you fix a bug (the one that fails before the fix) or change what the gate decides. Four cases that differ only by input are one parametrized test.
+Add a test when you fix a bug (the one that fails before the fix) or change what the gate decides. Four cases that differ only by input are one parametrized test. `src/cli.ts` runs its command switch on import, so `test/cli.test.ts` compiles it to a scratch directory and runs each command as a process, with `HOME` and `CANNY_HOME` pointed at temp directories. Logic that can live outside `cli.ts` (`src/install.ts`, `src/ledger.ts`) is tested by import.
 
 ## Trying a change against a real agent
 

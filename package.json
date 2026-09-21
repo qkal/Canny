@@ -1,6 +1,6 @@
 {
   "name": "canny-warden",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Warden for AI coding agents: an evidence ledger, a done-gate, and Jev-backed rule checks for Claude Code and Codex CLI",
   "license": "MIT",
   "author": "Kal",

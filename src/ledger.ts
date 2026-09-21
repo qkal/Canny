@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   statSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
@@ -176,13 +177,23 @@ const inside = (parent: string, child: string): boolean => {
 /** The most recent session recorded for the project at `cwd`. */
 // ponytail: reads whole ledgers newest first until one matches; add an index file if ~/.canny/sessions grows into the thousands
 export function latestSession(cwd: string): { file: string; entries: Entry[] } | null {
+  const here = real(cwd);
   for (const { file } of listSessions()) {
     const entries = read(file);
     const at = sessionCwd(entries);
-    if (at && sameProject(at, cwd)) return { file, entries };
+    if (at && sameProject(real(at), here)) return { file, entries };
   }
   return null;
 }
+
+/** The agent may report a path through a symlink (`/tmp` on macOS) that the shell resolves, or the reverse. */
+const real = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+};
 
 /** The hook fails open, so its crashes are only visible here. */
 export function hookErrors(): { count: number; last: string } | null {

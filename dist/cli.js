@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-import { accessSync, appendFileSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync, } from "node:fs";
+import { accessSync, appendFileSync, constants, existsSync, mkdirSync, readFileSync, } from "node:fs";
 import { homedir } from "node:os";
-import { basename, delimiter, dirname, join } from "node:path";
+import { basename, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { findConfig, home, loadConfig, trust, WEAKENING } from "./config.js";
 import { normalize } from "./events.js";
 import { decideStop, handle, serialize } from "./hook.js";
+import { hookConfig, merge } from "./install.js";
 import { makeJudge } from "./jev.js";
 import { append, hookErrors, latestSession, listSessions, read, sessionCwd, sessionFile, summarize, } from "./ledger.js";
 const { values: opts, positionals } = parseArgs({
@@ -88,30 +89,24 @@ function init() {
         codex: explicit ? Boolean(opts.codex) : found.codex || neither,
     };
     // A PATH lookup survives upgrades of canny and of Node. Absolute paths into a package store do not.
-    const command = (agent) => `${self()} hook --agent ${agent}`;
     if (!onPath("canny"))
         console.log(`Hooks call node with the path of this checkout, ${fileURLToPath(import.meta.url)}. Keep it there.`);
-    const handler = (agent, timeout, matcher) => ({
-        ...(matcher && { matcher }),
-        hooks: [{ type: "command", command: command(agent), timeout, statusMessage: "Canny" }],
-    });
     const root = opts.global ? homedir() : process.cwd();
-    if (want.claude) {
-        const tools = "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell";
-        merge(join(root, ".claude", "settings.json"), {
-            PreToolUse: [handler("claude", 10, tools)],
-            PostToolUse: [handler("claude", 15, tools)],
-            PostToolUseFailure: [handler("claude", 15, "Bash|PowerShell")],
-            Stop: [handler("claude", 15)],
-        });
-    }
+    if (want.claude)
+        write(join(root, ".claude", "settings.json"), hookConfig("claude", self()));
     if (want.codex) {
-        merge(join(root, ".codex", "hooks.json"), {
-            PreToolUse: [handler("codex", 10, "Bash|apply_patch")],
-            PostToolUse: [handler("codex", 15, "Bash|apply_patch")],
-            Stop: [handler("codex", 15)],
-        });
+        write(join(root, ".codex", "hooks.json"), hookConfig("codex", self()));
         console.log("Codex asks you to trust new hooks once: run /hooks inside Codex.");
+    }
+}
+/** A settings file that cannot be merged into is left alone, and the command fails. */
+function write(file, ours) {
+    try {
+        console.log(merge(file, ours));
+    }
+    catch (e) {
+        console.error(e instanceof Error ? e.message : String(e));
+        process.exitCode = 1;
     }
 }
 /** How to run this CLI from a shell: the bare name when it is on PATH, else node with this file. */
@@ -132,45 +127,11 @@ function onPath(name) {
         }
     }));
 }
-/** Drop every earlier Canny entry, add ours, keep everything else as it was. */
-function merge(file, ours) {
-    let existing = {};
-    if (existsSync(file)) {
-        try {
-            existing = JSON.parse(readFileSync(file, "utf8"));
-        }
-        catch (e) {
-            console.error(`${file} is not valid JSON; fix it and run again. ${String(e)}`);
-            return;
-        }
-    }
-    const hooks = (existing.hooks ??= {});
-    const isCanny = (g) => (g.hooks ?? []).some((h) => /\bcanny\b.*\bhook\b/.test(h.command ?? ""));
-    let removed = 0;
-    for (const [event, groups] of Object.entries(hooks)) {
-        const kept = groups.filter((g) => !isCanny(g));
-        removed += groups.length - kept.length;
-        if (kept.length)
-            hooks[event] = kept;
-        else
-            delete hooks[event];
-    }
-    for (const [event, groups] of Object.entries(ours))
-        hooks[event] = [...(hooks[event] ?? []), ...groups];
-    const adding = Object.keys(ours).length > 0;
-    if (!adding && !removed) {
-        console.log(`no Canny hooks in ${file}`);
-        return;
-    }
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify(existing, null, 2) + "\n");
-    console.log(`${adding ? "wrote" : "removed Canny hooks from"} ${file}`);
-}
 function remove() {
     const root = opts.global ? homedir() : process.cwd();
     for (const file of [join(root, ".claude", "settings.json"), join(root, ".codex", "hooks.json")])
         if (existsSync(file))
-            merge(file, {});
+            write(file, {});
 }
 /** A project config can only turn checks off once the user has seen it and said so. */
 function trustConfig() {
