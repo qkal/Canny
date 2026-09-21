@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { makeJudge, noul, type JevLog } from "../src/jev.js";
 
@@ -43,6 +45,16 @@ describe("makeJudge", () => {
       model: "jev-latest",
       questions: { q: { type: "noul", instructions: "?" } },
     });
+  });
+
+  it("keeps a judgment the cache cannot store", async () => {
+    process.env.TYPESAFE_API_KEY = "k";
+    // The cache directory cannot be created: its path is occupied by a file.
+    writeFileSync(join(process.env.CANNY_HOME!, "jev"), "not a directory");
+    const logs: JevLog[] = [];
+    const judge = makeJudge({ log: (e) => logs.push(e), fetchFn: ok({ q: 0.9 }) });
+    expect(await judge("s", { q: noul("?") })).toEqual({ q: 0.9 });
+    expect(logs[0]?.error).toBeUndefined();
   });
 
   it("returns null and logs the error on an HTTP failure", async () => {

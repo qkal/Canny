@@ -25,7 +25,12 @@ const safeRegex = (p) => {
 export const sha = (text) => createHash("sha256").update(text).digest("hex");
 /** Commands that print or inspect: `echo tsc` and `git diff -- vitest.config.ts` prove nothing. */
 // ponytail: denylist of first words, move to parsing the command position if agents find other ways around it
-const NOT_A_CHECK = /^(?:echo|printf|cat|grep|rg|ls|which|type|command|man|head|tail|git)\b|\s--(?:version|help)\b/;
+// Leading whitespace is matched here rather than assumed away: as one regex with a shared `^`, the
+// anchor bound only the first alternative, so an untrimmed `   echo tsc` read as a passing check.
+const PRINTS_OR_INSPECTS = /^\s*(?:echo|printf|cat|grep|rg|ls|which|type|command|man|head|tail|git)\b/;
+/** `--version` and `--help` anywhere in the statement: the command ran, but it checked nothing. */
+const ASKS_ONLY = /\s--(?:version|help)\b/;
+const notACheck = (part) => PRINTS_OR_INSPECTS.test(part) || ASKS_ONLY.test(part);
 /**
  * Whether a shell command is a test, build, lint, or type check whose exit status reaches the
  * agent. Quoted strings are dropped so a commit message cannot match. A check piped into another
@@ -47,7 +52,7 @@ export function isVerify(command, config) {
         // A lone `&` backgrounds the check; `2>&1` and `&>` are redirections.
         if (/(?<!>)&(?!>)/.test(part))
             return false;
-        if (NOT_A_CHECK.test(part))
+        if (notACheck(part))
             return false;
         return config.verify
             ? config.verify.some((p) => safeRegex(p)?.test(part))

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sha } from "./checks.js";
 import { home } from "./config.js";
@@ -44,6 +44,27 @@ interface Options {
   fetchFn?: typeof fetch;
 }
 
+/**
+ * Written beside the file and renamed over it, the way `install.ts` writes settings: parallel hooks
+ * miss the same key and answer it at once, and a half-written file would be read back as a miss.
+ * A cache that cannot be written is not an error — the answer is already in hand, so it is kept.
+ */
+function writeCache(file: string, text: string): void {
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+    // Exclusive: a path already there, such as another hook's temp file, is never written through.
+    writeFileSync(tmp, text, { mode: 0o600, flag: "wx" });
+    renameSync(tmp, file);
+  } catch {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // Nothing to clean up: the cache directory could not be made in the first place.
+    }
+  }
+}
+
 /** A judge backed by TypeSafe's Jev, with a content-hash cache in front of it. */
 export function makeJudge(opts: Options): Judge {
   const doFetch = opts.fetchFn ?? fetch;
@@ -82,8 +103,7 @@ export function makeJudge(opts: Options): Judge {
         const n = json.answers?.[id]?.noul;
         if (typeof n === "number") answers[id] = n;
       }
-      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-      writeFileSync(file, JSON.stringify({ body, answers, ts: Date.now() }), { mode: 0o600 });
+      writeCache(file, JSON.stringify({ body, answers, ts: Date.now() }));
       opts.log({ hash, ids, cached: false, ms: Date.now() - started, answers });
       return answers;
     } catch (e) {
