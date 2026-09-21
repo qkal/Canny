@@ -36,14 +36,20 @@
   },
   "scripts": {
     "build": "tsc",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc -p tsconfig.test.json",
     "lint": "oxlint src test",
     "format": "prettier --write .",
+    "format:check": "prettier --check src test",
     "test": "vitest run",
-    "prepack": "pnpm build"
+    "test:coverage": "vitest run --coverage",
+    "test:smoke": "bash test/smoke.sh",
+    "check": "pnpm format:check && pnpm type-check && pnpm lint && pnpm test:coverage && pnpm build && git diff --exit-code -- dist",
+    "prepack": "pnpm build",
+    "prepare": "git config --get core.hooksPath || git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",
+    "@vitest/coverage-v8": "^5.0.1",
     "oxlint": "^1.83.0",
     "prettier": "^3.9.8",
     "typescript": "^7.0.2",

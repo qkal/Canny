@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -38,6 +38,22 @@ describe("loadConfig", () => {
     trust(file);
     expect(loadConfig(cwd)).toEqual({ allow: ["secrets"] });
     write({ allow: ["secrets", "repeat-failure"] });
+    expect(loadConfig(cwd)).toEqual({});
+  });
+
+  it("applies the project's config from a subdirectory, trusted or not", () => {
+    const sub = join(cwd, "packages", "web");
+    mkdirSync(sub, { recursive: true });
+    const file = write({ allow: ["secrets"], strict: true });
+    expect(loadConfig(sub)).toEqual({ strict: true });
+    trust(file);
+    expect(loadConfig(sub)).toEqual({ allow: ["secrets"], strict: true });
+  });
+
+  it("trusts a file where it is, not the same contents copied elsewhere", () => {
+    trust(write({ allow: ["secrets"] }));
+    cwd = mkdtempSync(join(tmpdir(), "canny-config-copy-"));
+    write({ allow: ["secrets"] });
     expect(loadConfig(cwd)).toEqual({});
   });
 });

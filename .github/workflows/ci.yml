@@ -4,21 +4,86 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Mondays: a Node release or runner image that breaks the suite shows up without waiting for a push.
+    - cron: "0 6 * * 1"
+
+# A newer push to the same pull request makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
-  check:
+  static:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec prettier --check src test
+      - run: pnpm format:check
       - run: pnpm type-check
       - run: pnpm lint
-      - run: pnpm test
       - run: pnpm build
       - run: git diff --exit-code -- dist
+
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        # 22 is the oldest Node `engines` allows.
+        node: [22, 24, 26]
+        include:
+          # One cell holds the coverage gate, so V8 counting branches differently across versions cannot trip it.
+          - os: ubuntu-latest
+            node: 24
+            coverage: true
+          # Temp directories sit behind symlinks on macOS, which the scratch-path and session lookups handle.
+          - os: macos-latest
+            node: 24
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: ${{ matrix.coverage && 'pnpm test:coverage' || 'pnpm test' }}
+
+  smoke:
+    name: smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # The oldest Node `engines` allows, and no `pnpm install`: users run the committed `dist/` as it is.
+          node-version: 22
+      - run: bash test/smoke.sh
+
+  # The one check to require on `main` for this workflow: matrix job names change with the matrix, this
+  # name does not. CodeQL is another workflow, so `needs` cannot reach it.
+  ci-ok:
+    if: always()
+    needs: [static, test, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}

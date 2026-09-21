@@ -47,6 +47,61 @@ describe("isVerify", () => {
     ["ls -la", false],
   ])("%s -> %s", (cmd, yes) => expect(isVerify(cmd, {})).toBe(yes));
 
+  // Every gate bypass so far was a combination nobody had written down, so the table is a product:
+  // each check, in each form that hides its exit status, and in each wrapper that does not.
+  const checks = [
+    "pnpm test",
+    "npm test",
+    "npx vitest run",
+    "uv run pytest -q",
+    "go test ./...",
+    "cargo test",
+    "tsc --noEmit",
+    "pnpm build",
+    "pnpm lint",
+    "ruff check .",
+    "pre-commit run --all-files",
+  ];
+  const hides: ((c: string) => string)[] = [
+    (c) => `${c} | tail -5`,
+    (c) => `${c} 2>&1 | tee out.log`,
+    (c) => `${c} | grep -v warn`,
+    (c) => `${c} || true`,
+    (c) => `(${c}) || echo failed`,
+    (c) => `${c}; echo done`,
+    (c) => `${c}\necho done`,
+    (c) => `${c} &`,
+    (c) => `${c} & wait`,
+    (c) => `if ! ${c}; then echo bad; fi`,
+    (c) => `echo ${c}`,
+    (c) => `${c} --help`,
+    (c) => `git commit -m "${c}"`,
+    (c) => `cat package.json | grep "${c}"`,
+  ];
+  const keeps: ((c: string) => string)[] = [
+    (c) => `cd packages/web && ${c}`,
+    (c) => `cd web\n${c}`,
+    (c) => `${c} 2>&1`,
+    (c) => `${c} > out.log 2>&1`,
+    (c) => `CI=1 ${c}`,
+    (c) => `env CI=1 ${c}`,
+    (c) => `time ${c}`,
+    (c) => `timeout 120 ${c}`,
+    (c) => `(${c})`,
+    (c) => `pnpm install && ${c}`,
+    (c) => `echo start; ${c}`,
+    (c) => `${c} && echo ok`,
+    (c) => `set -o pipefail; ${c} | tail -20`,
+  ];
+  const all = (forms: ((c: string) => string)[]): string[] =>
+    forms.flatMap((form) => checks.map(form));
+
+  it("counts no check whose exit status the command hides", () =>
+    expect(all(hides).filter((cmd) => isVerify(cmd, {}))).toEqual([]));
+
+  it("counts every check inside a wrapper that passes its exit status on", () =>
+    expect(all(keeps).filter((cmd) => !isVerify(cmd, {}))).toEqual([]));
+
   it("uses config.verify instead of the defaults when given", () => {
     expect(isVerify("pnpm test", { verify: ["^just check$"] })).toBe(false);
     expect(isVerify("just check", { verify: ["^just check$"] })).toBe(true);

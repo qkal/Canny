@@ -1,5 +1,6 @@
 node_modules/
 .DS_Store
+coverage/
 .remember/
 docs/plans/
 docs/brainstorms/
