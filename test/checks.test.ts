@@ -2,7 +2,14 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { findSecrets, fingerprint, isIgnored, isVerify, testDamage } from "../src/checks.js";
+import {
+  findSecrets,
+  fingerprint,
+  isIgnored,
+  isScratch,
+  isVerify,
+  testDamage,
+} from "../src/checks.js";
 
 describe("findSecrets", () => {
   it.each([
@@ -19,6 +26,20 @@ describe("findSecrets", () => {
     "const token = getToken();",
     "sk-test",
   ])("ignores %s", (text) => expect(findSecrets(text)).toEqual([]));
+});
+
+describe("isScratch", () => {
+  const project = "/tmp/proj";
+  it.each([
+    ["/tmp/other.json", true],
+    ["../sibling.ts", true],
+    ["src/a.ts", false],
+    // `relative` answers "..data.ts" here, which is a file in the project, not a step above it.
+    ["..data.ts", false],
+    ["src/..data.ts", false],
+  ])("%s under a project that itself lives in a temp directory -> %s", (path, scratch) =>
+    expect(isScratch(path, project)).toBe(scratch),
+  );
 });
 
 describe("isVerify", () => {

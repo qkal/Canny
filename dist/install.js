@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { isObj, SHELL_TOOLS, TOOLS } from "./events.js";
 const STATUS = "Canny";
 const RUNS_CANNY = /^["']?canny["']?\s+hook\s+--agent\s+(?:claude|codex)\b/;
 const RUNS_A_HOOK = /\shook\s+--agent\s+(?:claude|codex)\b/;
@@ -26,17 +27,17 @@ export function hookConfig(agent, command) {
             },
         ],
     });
+    const tools = TOOLS[agent].join("|");
     if (agent === "codex")
         return {
-            PreToolUse: [handler(10, "Bash|apply_patch")],
-            PostToolUse: [handler(15, "Bash|apply_patch")],
+            PreToolUse: [handler(10, tools)],
+            PostToolUse: [handler(15, tools)],
             Stop: [handler(15)],
         };
-    const tools = "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell";
     return {
         PreToolUse: [handler(10, tools)],
         PostToolUse: [handler(15, tools)],
-        PostToolUseFailure: [handler(15, "Bash|PowerShell")],
+        PostToolUseFailure: [handler(15, SHELL_TOOLS.join("|"))],
         Stop: [handler(15)],
     };
 }
@@ -57,13 +58,13 @@ export function merge(file, ours) {
                 cause: e,
             });
         }
-        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+        if (!isObj(parsed))
             throw new Error(`${file} does not hold a JSON object; fix it and run again.`);
         existing = parsed;
     }
     // `"hooks": null` says "no hooks" and holds nothing to lose, so it reads as absent.
     const current = existing.hooks ?? {};
-    if (typeof current !== "object" || Array.isArray(current))
+    if (!isObj(current))
         throw new Error(`"hooks" in ${file} is not a JSON object; fix it and run again.`);
     const hooks = current;
     let removed = 0;

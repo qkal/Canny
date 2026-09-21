@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Config } from "./config.js";
 import type { FileChange } from "./events.js";
 
@@ -11,12 +11,19 @@ const VERIFY = [
   /\b(eslint|oxlint|biome (check|lint)|prettier --check|ruff (check|format --check)|flake8|pylint|mypy|pyright|pyrefly|ty check|pnpm type-check|npm run lint|pnpm lint|pnpm run lint|yarn lint|golangci-lint|cargo clippy|swiftlint|swift-format lint|pre-commit run|just lint|just check|rubocop|shellcheck)\b/,
 ];
 
+// Config patterns are tested once per path and once per command segment, so each is compiled once.
+const compiled = new Map<string, RegExp | null>();
 const safeRegex = (p: string): RegExp | null => {
-  try {
-    return new RegExp(p);
-  } catch {
-    return null;
+  let re = compiled.get(p);
+  if (re === undefined) {
+    try {
+      re = new RegExp(p);
+    } catch {
+      re = null;
+    }
+    compiled.set(p, re);
   }
+  return re;
 };
 
 export const sha = (text: string): string => createHash("sha256").update(text).digest("hex");
@@ -57,12 +64,16 @@ export function isVerify(command: string, config: Config): boolean {
 const IGNORE =
   /(^|\/)docs?\/|(^|\/)(node_modules|\.venv|__pycache__|coverage|\.cache|\.git)(\/|$)|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
 
+/** One directory is the other, or sits inside it. `relative` gets the filesystem root and Windows drives right, which string prefixes do not. */
+export const inside = (parent: string, child: string): boolean => {
+  const r = relative(parent, child);
+  return r !== ".." && !r.startsWith(".." + sep) && !isAbsolute(r);
+};
+
 /** Scratch space outside the project. A project that itself lives under a temp directory is not scratch. */
 export const isScratch = (path: string, cwd: string): boolean => {
   const abs = resolve(cwd, path);
-  return (
-    /^(\/private)?\/(tmp|var\/tmp|var\/folders)\//.test(abs) && relative(cwd, abs).startsWith("..")
-  );
+  return /^(\/private)?\/(tmp|var\/tmp|var\/folders)\//.test(abs) && !inside(cwd, abs);
 };
 
 /** Files whose edits never need a passing check: docs, images, lockfiles, logs, installed packages, and anything in `config.ignore`. */
@@ -152,11 +163,13 @@ const TAIL_CHARS = 8000;
 
 /** Stable id for a failure: the command plus its output tail with timings and colors stripped. */
 export function fingerprint(command: string, output: string): string {
+  // Clipped before the split: one build log can be megabytes, and the last 30 lines of the last
+  // TAIL_CHARS characters are the same text as the last TAIL_CHARS characters of the last 30 lines.
   const tail = output
+    .slice(-TAIL_CHARS)
     .split("\n")
     .slice(-30)
     .join("\n")
-    .slice(-TAIL_CHARS)
     .replace(ANSI, "")
     .replace(/(?<!\d)\d+(?:\.\d+)?\s*(?:ms|s|secs?|seconds?|m|mins?|minutes?)\b/g, "T")
     .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\S*/g, "TS")

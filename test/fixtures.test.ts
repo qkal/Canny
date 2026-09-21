@@ -1,16 +1,11 @@
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { normalize } from "../src/events.js";
 import { handle } from "../src/hook.js";
 import { sessionFile } from "../src/ledger.js";
 
 const fixtures = join(import.meta.dirname, "fixtures");
-
-beforeEach(() => {
-  process.env.CANNY_HOME = mkdtempSync(join(tmpdir(), "canny-fixtures-"));
-});
 
 // Payloads recorded from real agent sessions and scrubbed by `fixtures/scrub.mjs`. The payloads in the
 // other test files are written by hand and show what Canny expects; these show what the agents send.

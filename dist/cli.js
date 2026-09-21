@@ -4,9 +4,9 @@ import { homedir } from "node:os";
 import { basename, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { findConfig, home, loadConfig, trust, WEAKENING } from "./config.js";
+import { errorLog, findConfig, home, loadConfig, trust, weakened } from "./config.js";
 import { normalize } from "./events.js";
-import { decideStop, handle, serialize } from "./hook.js";
+import { CLAIMS_DONE_ID, decideStop, handle, serialize } from "./hook.js";
 import { hookConfig, merge } from "./install.js";
 import { makeJudge } from "./jev.js";
 import { append, hookErrors, latestSession, listSessions, read, sessionCwd, sessionFile, summarize, } from "./ledger.js";
@@ -70,9 +70,7 @@ async function hook() {
     }
     catch (e) {
         mkdirSync(home(), { recursive: true, mode: 0o700 });
-        appendFileSync(join(home(), "errors.log"), `${new Date().toISOString()} ${String(e)}\n`, {
-            mode: 0o600,
-        });
+        appendFileSync(errorLog(), `${new Date().toISOString()} ${String(e)}\n`, { mode: 0o600 });
     }
     process.stdout.write(JSON.stringify(out));
 }
@@ -89,15 +87,23 @@ function init() {
         codex: explicit ? Boolean(opts.codex) : found.codex || neither,
     };
     // A PATH lookup survives upgrades of canny and of Node. Absolute paths into a package store do not.
-    if (!onPath("canny"))
+    const command = self();
+    if (command !== "canny")
         console.log(`Hooks call node with the path of this checkout, ${fileURLToPath(import.meta.url)}. Keep it there.`);
     const root = opts.global ? homedir() : process.cwd();
     if (want.claude)
-        write(join(root, ".claude", "settings.json"), hookConfig("claude", self()));
+        write(settingsFile(root, "claude"), hookConfig("claude", command));
     if (want.codex) {
-        write(join(root, ".codex", "hooks.json"), hookConfig("codex", self()));
+        write(settingsFile(root, "codex"), hookConfig("codex", command));
         console.log("Codex asks you to trust new hooks once: run /hooks inside Codex.");
     }
+}
+/** Where each agent keeps its hooks, so `init` and `remove` cannot disagree about the path. */
+// A declaration, not a const: the command switch at the top of the file runs before any const below it exists.
+function settingsFile(root, agent) {
+    return agent === "claude"
+        ? join(root, ".claude", "settings.json")
+        : join(root, ".codex", "hooks.json");
 }
 /** A settings file that cannot be merged into is left alone, and the command fails. */
 function write(file, ours) {
@@ -129,9 +135,11 @@ function onPath(name) {
 }
 function remove() {
     const root = opts.global ? homedir() : process.cwd();
-    for (const file of [join(root, ".claude", "settings.json"), join(root, ".codex", "hooks.json")])
+    for (const agent of ["claude", "codex"]) {
+        const file = settingsFile(root, agent);
         if (existsSync(file))
             write(file, {});
+    }
 }
 /** A project config can only turn checks off once the user has seen it and said so. */
 function trustConfig() {
@@ -141,7 +149,7 @@ function trustConfig() {
         return;
     }
     trust(found.file);
-    const fields = WEAKENING.filter((f) => found.config[f] !== undefined);
+    const fields = weakened(found.config);
     console.log(fields.length
         ? `trusted ${found.file}: ${fields.join(", ")} now take effect`
         : `trusted ${found.file}`);
@@ -159,20 +167,20 @@ function status() {
     // Before the session lookup: a fresh project has no sessions yet but can already have a config.
     const config = findConfig(process.cwd());
     if (config && !config.trusted) {
-        const ignored = WEAKENING.filter((f) => config.config[f] !== undefined);
+        const ignored = weakened(config.config);
         if (ignored.length)
             console.log(`config    ${config.file} is untrusted, so ${ignored.join(", ")} ${ignored.length > 1 ? "are" : "is"} ignored; \`${self()} trust\` accepts it`);
     }
     // Also before the lookup: a hook that crashes on every event records no session at all.
     const errors = hookErrors();
     if (errors)
-        console.log(`errors    ${errors.count} hook ${errors.count === 1 ? "crash" : "crashes"} in ${join(home(), "errors.log")}, and a crashed hook checks nothing. Last: ${errors.last}`);
+        console.log(`errors    ${errors.count} hook ${errors.count === 1 ? "crash" : "crashes"} in ${errorLog()}, and a crashed hook checks nothing. Last: ${errors.last}`);
     const picked = pick();
     if (!picked)
         return;
     const { file, entries } = picked;
     const s = summarize(entries);
-    const stops = entries.filter((e) => e.type === "verdict" && e.phase === "stop");
+    const stops = entries.filter((e) => e.type === "verdict").filter((e) => e.phase === "stop");
     const jev = entries.filter((e) => e.type === "jev");
     console.log(`session   ${basename(file)}`);
     console.log(`project   ${sessionCwd(entries) ?? "(not recorded)"}`);
@@ -184,8 +192,8 @@ function status() {
     const repeats = Object.values(s.repeats).filter((r) => r.n > 1);
     if (repeats.length)
         console.log(`repeats   ${repeats.map((r) => `\`${r.command}\` x${r.n}`).join("; ")}`);
-    console.log(`stops     ${stops.map((e) => (e.type === "verdict" ? e.decision : "")).join(", ") || "none yet"}`);
-    console.log(`jev       ${jev.length} calls, ${jev.filter((e) => e.type === "jev" && e.cached).length} cached, ${jev.filter((e) => e.type === "jev" && e.error).length} failed`);
+    console.log(`stops     ${stops.map((e) => e.decision).join(", ") || "none yet"}`);
+    console.log(`jev       ${jev.length} calls, ${jev.filter((e) => e.cached).length} cached, ${jev.filter((e) => e.error).length} failed`);
 }
 /** Re-run the gate over the recorded facts with the recorded Jev answers. Any mismatch means the gate is not deterministic. */
 function replay() {
@@ -201,11 +209,10 @@ function replay() {
             return;
         const rest = entries.slice(i + 1);
         const verdictAt = rest.findIndex((x) => x.type === "verdict");
-        const verdict = verdictAt >= 0 ? rest[verdictAt] : undefined;
-        const jev = rest.slice(0, verdictAt >= 0 ? verdictAt : 0).find((x) => x.type === "jev");
-        const answers = jev?.type === "jev" ? jev.answers : null;
-        const decision = decideStop(summarize(entries.slice(0, i + 1)), e.fact.stopHookActive, answers?.claims_done, config);
-        const recorded = verdict?.type === "verdict" ? verdict.decision : "(none)";
+        const verdict = rest.find((x) => x.type === "verdict");
+        const jev = rest.slice(0, Math.max(verdictAt, 0)).find((x) => x.type === "jev");
+        const decision = decideStop(summarize(entries.slice(0, i + 1)), e.fact.stopHookActive, jev?.answers?.[CLAIMS_DONE_ID], config);
+        const recorded = verdict?.decision ?? "(none)";
         const ok = decision.kind === recorded;
         if (!ok)
             mismatches++;

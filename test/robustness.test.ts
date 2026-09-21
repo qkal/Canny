@@ -1,16 +1,9 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { findSecrets, fingerprint, isVerify, plain } from "../src/checks.js";
 import { fileOps, normalize, shellWrites, writeTargets } from "../src/events.js";
 import { handle } from "../src/hook.js";
 import { sessionFile } from "../src/ledger.js";
 import { extractRules } from "../src/rules.js";
-
-beforeEach(() => {
-  process.env.CANNY_HOME = mkdtempSync(join(tmpdir(), "canny-robust-"));
-});
 
 // The CLI catches a throw and answers `{}`, so a payload that crashes the hook switches every
 // check off without anyone seeing it. Whatever arrives has to come out as a decision.

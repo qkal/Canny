@@ -7,9 +7,9 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { fingerprint, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
-import { home, type Config } from "./config.js";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { fingerprint, inside, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
+import { errorLog, home, type Config } from "./config.js";
 import type { Agent, Event, Phase } from "./events.js";
 import type { JevLog } from "./jev.js";
 
@@ -29,7 +29,11 @@ export type Fact =
   | CommandFact
   | { kind: "stop"; stopHookActive: boolean; messageHash: string };
 
-/** `cwd` is missing from ledgers written before it was recorded. */
+/**
+ * A forensic record as well as the gate's input: `files`, `deleted`, `messageHash`, `hookEvent` and
+ * `tool` are written for the user reading the jsonl, not read back by `summarize`.
+ * `cwd` is missing from ledgers written before it was recorded.
+ */
 export type Entry =
   | {
       ts: number;
@@ -130,6 +134,7 @@ export interface Summary {
 }
 
 export function summarize(entries: Entry[]): Summary {
+  const seen = new Set<string>();
   const s: Summary = {
     codeFiles: [],
     verified: null,
@@ -146,7 +151,11 @@ export function summarize(entries: Entry[]): Summary {
     const f = e.fact;
     if (f.code.length) {
       s.verified = null;
-      for (const p of f.code) if (!s.codeFiles.includes(p)) s.codeFiles.push(p);
+      for (const p of f.code)
+        if (!seen.has(p)) {
+          seen.add(p);
+          s.codeFiles.push(p);
+        }
     }
     if (f.kind === "command") {
       s.lastCommand = f;
@@ -162,17 +171,13 @@ export function summarize(entries: Entry[]): Summary {
 }
 
 /** The directory the agent was working in, which says which project a session belongs to. */
-export const sessionCwd = (entries: Entry[]): string | undefined =>
-  entries.flatMap((e) => (e.type !== "jev" && e.cwd ? [e.cwd] : []))[0];
+export const sessionCwd = (entries: Entry[]): string | undefined => {
+  for (const e of entries) if (e.type !== "jev" && e.cwd) return e.cwd;
+  return undefined;
+};
 
 /** One directory is the other, or sits inside it: the agent may run in a subdirectory of where the user stands, or the reverse. */
 export const sameProject = (a: string, b: string): boolean => inside(a, b) || inside(b, a);
-
-/** `relative` gets the filesystem root and Windows drives right, which string prefixes do not. */
-const inside = (parent: string, child: string): boolean => {
-  const r = relative(parent, child);
-  return r !== ".." && !r.startsWith(".." + sep) && !isAbsolute(r);
-};
 
 /** The most recent session recorded for the project at `cwd`. */
 // ponytail: reads whole ledgers newest first until one matches; add an index file if ~/.canny/sessions grows into the thousands
@@ -199,7 +204,7 @@ const real = (path: string): string => {
 export function hookErrors(): { count: number; last: string } | null {
   let lines: string[];
   try {
-    lines = readFileSync(join(home(), "errors.log"), "utf8").split("\n").filter(Boolean);
+    lines = readFileSync(errorLog(), "utf8").split("\n").filter(Boolean);
   } catch {
     // No log, or one that cannot be read: `status` still has a session to show.
     return null;

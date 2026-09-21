@@ -1,12 +1,5 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { makeJudge, noul, type JevLog } from "../src/jev.js";
-
-beforeEach(() => {
-  process.env.CANNY_HOME = mkdtempSync(join(tmpdir(), "canny-jev-"));
-});
 
 const ok = (answers: Record<string, number>) =>
   vi.fn<typeof fetch>(

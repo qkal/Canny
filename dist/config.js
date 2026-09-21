@@ -2,12 +2,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { sha } from "./checks.js";
+import { isObj } from "./events.js";
 /** Where sessions, the Jev cache, and the error log live. */
 export const home = () => process.env.CANNY_HOME ?? join(homedir(), ".canny");
+/** The hook fails open, so its crashes are only recorded here. */
+export const errorLog = () => join(home(), "errors.log");
 /** True when the user turned a check off through `allow`. */
 export const off = (config, check) => (config.allow ?? []).includes(check);
 /** Fields that can only loosen the guard, so they wait for `canny trust`. The rest are safe to obey. */
 export const WEAKENING = ["verify", "ignore", "rules", "allow"];
+/** The weakening fields a config actually sets: what `trust` would enable, and what `status` reports as ignored. */
+export const weakened = (config) => WEAKENING.filter((f) => config[f] !== undefined);
 /** The nearest `.canny.json` at or above `cwd`, stopping at the home directory. */
 export function findConfig(cwd) {
     let dir = cwd;
@@ -16,7 +21,11 @@ export function findConfig(cwd) {
         const file = join(dir, ".canny.json");
         if (existsSync(file)) {
             const text = readText(file);
-            return { file, config: parse(text), trusted: text !== "" && store()[file] === sha(text) };
+            return {
+                file,
+                config: parse(text),
+                trusted: text !== "" && store()[file] === sha(text),
+            };
         }
         const parent = dirname(dir);
         if (dir === stop || parent === dir)
@@ -47,21 +56,12 @@ export function trust(file) {
     writeFileSync(trustFile(), JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
 }
 const trustFile = () => join(home(), "trusted.json");
-function store() {
-    try {
-        return JSON.parse(readFileSync(trustFile(), "utf8")) ?? {};
-    }
-    catch {
-        return {};
-    }
-}
+const store = () => parse(readText(trustFile()));
 /** Anything but a JSON object — `null`, an array, a number, junk — is treated as no config at all. */
 function parse(text) {
     try {
         const value = JSON.parse(text);
-        return value !== null && typeof value === "object" && !Array.isArray(value)
-            ? value
-            : {};
+        return isObj(value) ? value : {};
     }
     catch {
         return {};
