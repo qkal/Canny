@@ -1,0 +1,111 @@
+import {
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
+import { hookConfig, isCannyHook, merge } from "../src/install.js";
+
+let dir: string;
+let file: string;
+const json = (): Record<string, unknown> =>
+  JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+const ours = hookConfig("claude", "canny");
+const foreign = { type: "command", command: "/Users/kal/canny/other-tool/run.sh --hook" };
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "canny-install-"));
+  file = join(dir, ".claude", "settings.json");
+});
+
+describe("isCannyHook", () => {
+  it.each([
+    ["canny hook --agent claude", true],
+    ['node "/Users/me/.canny/src/dist/cli.js" hook --agent codex', true],
+    ["/opt/node/bin/node /store/canny-warden/dist/cli.js hook --agent claude", true],
+    ["/Users/kal/canny/other-tool/run.sh --hook", false],
+    ["uncanny hook --agent claude", false],
+    ["canny status", false],
+  ])("%s -> %s", (command, yes) => expect(isCannyHook({ command })).toBe(yes));
+});
+
+describe("merge", () => {
+  it("creates the file with Canny's hooks when there is none", () => {
+    expect(merge(file, ours)).toBe(`wrote ${file}`);
+    expect(Object.keys(json().hooks as object)).toEqual([
+      "PreToolUse",
+      "PostToolUse",
+      "PostToolUseFailure",
+      "Stop",
+    ]);
+  });
+
+  it("keeps every other setting and hook, and does not stack entries when run twice", () => {
+    merge(file, ours);
+    writeFileSync(
+      file,
+      JSON.stringify({
+        model: "x",
+        permissions: { allow: ["Bash(ls:*)"] },
+        hooks: { Stop: [{ hooks: [foreign] }], Notification: [{ hooks: [foreign] }] },
+      }),
+    );
+    merge(file, ours);
+    merge(file, hookConfig("claude", 'node "/new/place/dist/cli.js"'));
+    const out = json();
+    expect(out.model).toBe("x");
+    expect(out.permissions).toEqual({ allow: ["Bash(ls:*)"] });
+    const hooks = out.hooks as Record<string, { hooks: { command: string }[] }[]>;
+    expect(hooks.Notification).toEqual([{ hooks: [foreign] }]);
+    expect(hooks.Stop!.map((g) => g.hooks[0]!.command)).toEqual([
+      foreign.command,
+      'node "/new/place/dist/cli.js" hook --agent claude',
+    ]);
+  });
+
+  it("removes only Canny's hook from a group it shares with another tool", () => {
+    merge(file, ours);
+    const shared = json() as { hooks: Record<string, { hooks: unknown[] }[]> };
+    shared.hooks.Stop![0]!.hooks.push(foreign);
+    writeFileSync(file, JSON.stringify(shared));
+    expect(merge(file, {})).toBe(`removed Canny hooks from ${file}`);
+    expect(json()).toEqual({ hooks: { Stop: [{ hooks: [foreign] }] } });
+  });
+
+  it("leaves no empty hooks object behind, and says so when there was nothing to remove", () => {
+    writeFileSync(join(dir, "s.json"), JSON.stringify({ model: "x" }));
+    file = join(dir, "s.json");
+    merge(file, ours);
+    merge(file, {});
+    expect(json()).toEqual({ model: "x" });
+    expect(merge(file, {})).toBe(`no Canny hooks in ${file}`);
+  });
+
+  it.each(["{ not json", "[]", "null", '{"hooks": []}'])(
+    "refuses %s and leaves the file as it was",
+    (text) => {
+      file = join(dir, "s.json");
+      writeFileSync(file, text);
+      expect(() => merge(file, ours)).toThrow(/fix it and run again/);
+      expect(readFileSync(file, "utf8")).toBe(text);
+    },
+  );
+
+  it("writes through a symlink, keeps the file mode, and leaves no temp file", () => {
+    const real = join(dir, "dotfiles-settings.json");
+    writeFileSync(real, "{}", { mode: 0o600 });
+    file = join(dir, "settings.json");
+    symlinkSync(real, file);
+    merge(file, ours);
+    expect(lstatSync(file).isSymbolicLink()).toBe(true);
+    expect(statSync(real).mode & 0o777).toBe(0o600);
+    expect(Object.keys(JSON.parse(readFileSync(real, "utf8")) as object)).toEqual(["hooks"]);
+    expect(readdirSync(dir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+  });
+});

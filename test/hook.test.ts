@@ -392,6 +392,7 @@ describe("which project a session belongs to", () => {
     await edit();
     expect(sessionCwd(read(file))).toBe(cwd);
     expect(latestSession(cwd)?.file).toBe(file);
+    mkdirSync(join(cwd, "src"));
     expect(latestSession(join(cwd, "src"))?.file).toBe(file);
     expect(latestSession(mkdtempSync(join(tmpdir(), "canny-other-")))).toBeNull();
   });
@@ -401,6 +402,13 @@ describe("which project a session belongs to", () => {
     expect(sameProject("/work/api/web", "/work/api")).toBe(true);
     expect(sameProject("/", "/work/api")).toBe(true);
     expect(sameProject("/work/api", "/work/..api")).toBe(false);
+  });
+
+  it("finds the session when the user reaches the project through a symlink", async () => {
+    await edit();
+    const link = join(mkdtempSync(join(tmpdir(), "canny-link-")), "project");
+    symlinkSync(cwd, link);
+    expect(latestSession(link)?.file).toBe(file);
   });
 
   it("reads past a ledger that cannot be read", async () => {

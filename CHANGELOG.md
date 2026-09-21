@@ -4,6 +4,8 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-21
+
 ### Added
 
 - `canny trust` accepts the nearest `.canny.json` as it stands, recording a hash of its contents under `~/.canny/trusted.json`.
@@ -23,6 +25,12 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 - Without a `canny` on PATH, `init` writes `node <checkout>/dist/cli.js` into the hook config instead of the absolute path of the Node binary, so a Node upgrade no longer breaks the hooks.
 
 ### Fixed
+
+- `canny init` and `canny remove` recognise their own hook entries by the command Canny writes (`canny hook --agent …`, or node with a path to `cli.js`), not by the word "canny" anywhere in the command. Another tool's hook that lives under a directory named `canny` is no longer deleted.
+- A hook group that holds another tool's hook next to Canny's keeps the other hook; the whole group used to be dropped.
+- A settings file that holds valid JSON but not an object, or a `hooks` value that is not an object, is refused and left untouched, and the command exits 1. `null` used to crash and `[]` was silently overwritten.
+- Settings are written to a temporary file and renamed into place, so a crash mid-write cannot leave half a file. A symlinked `settings.json` stays a symlink and the file keeps its mode. `canny remove` leaves no empty `"hooks": {}` behind.
+- `canny status` finds the session when the agent and the shell reach the project through different paths, such as `/tmp` and `/private/tmp` on macOS.
 
 - The secret check reads shell commands that write a file, so `echo "key = 'sk-…'" > src/config.ts` is denied like the same `Write` would be. Only text the command itself puts into the file is read: heredoc bodies and `echo` or `printf` statements. A key that is only used, such as a `curl` header whose response is saved, is left alone.
 - `rm`, `git rm`, and `mv` of a test file or test directory get the same ask (deny on Codex) as deleting it through an edit. Moving a test to another test path is not removal.
@@ -49,5 +57,6 @@ First release.
 - Claude Code and Codex CLI support from one codebase: shell writes by redirection are counted as edits, Claude Code's `PostToolUseFailure` carries the exit code, and Codex's exit code is read from the session transcript.
 - `canny init` writes hook config for a project or, with `--global`, for the home directory.
 
-[Unreleased]: https://github.com/qkal/canny/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/qkal/canny/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/qkal/canny/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qkal/canny/releases/tag/v0.1.0
