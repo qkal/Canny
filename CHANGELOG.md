@@ -20,6 +20,7 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 ### Fixed
 
 - A shell command that rewrites a test file goes through the test-removal check: a heredoc or `echo` redirect that leaves fewer test cases, an append that adds `.only` or `.skip`, and a `sed -i` or `perl -pi` script whose `s` command or delete pattern takes test cases out or puts skip markers in. The script is read, not run, so a delete by line number is not seen. Text a shell command writes is also checked against the project rules after it runs, like any other edit.
+- A shell command that starts with a `cd` to where it already is (`cd "$PWD"; …`, `cd <project> && …`) can write a key into a git-ignored `.env` again. Any `cd` used to cancel the env-file exemption, and agents open many commands that way, so the write Canny's own message recommends was denied. One `cd` to a plain path is now followed; a variable or a second `cd` still leaves no env file exempt. Found by the first `bench/` runs.
 - A `;` inside quotes no longer splits a shell statement, so `echo "const k = '<key>';" > src/k.ts` is denied. Before, the secret check lost the redirect as soon as the written code ended in a semicolon.
 
 ## [0.2.0] - 2026-09-21

@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { findSecrets, isPrivateEnv, isTestFile, plain, testDamage, } from "./checks.js";
 import { off } from "./config.js";
 import { fileOps, shellEdits, shellWrites } from "./events.js";
@@ -47,11 +48,12 @@ function pre(ctx, deps) {
         return { kind: "allow" };
     // The shell reaches the same files with no Write or Edit event, so the same two checks read the command.
     if (!off(deps.config, "secrets")) {
-        // After a `cd`, a relative target is no longer relative to `ctx.cwd`, so no env file is exempt.
-        const moved = /(?:^|[;&|(\n])\s*(?:cd|pushd)\s/.test(event.command);
+        const dir = shellDir(event.command, cwd);
         for (const w of shellWrites(event.command)) {
             const hits = findSecrets(w.text);
-            const targets = hits.length ? w.targets.filter((p) => moved || !isPrivateEnv(p, cwd)) : [];
+            const targets = hits.length
+                ? w.targets.filter((p) => dir === null || !isPrivateEnv(p, dir))
+                : [];
             if (targets.length)
                 return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, targets, hits) });
         }
@@ -83,6 +85,22 @@ function pre(ctx, deps) {
             });
     }
     return { kind: "allow" };
+}
+/**
+ * Where a command's relative paths start from. Agents open commands with `cd "$PWD"` or a `cd` to
+ * the project itself, so one `cd` to a plain path is followed. Null when the text does not say:
+ * a variable, a second `cd`. No env file is exempt then.
+ */
+function shellDir(command, cwd) {
+    const cds = [...command.matchAll(/(?:^|[;&|(\n])\s*(?:cd|pushd)\s+([^;&|\n)]*)/g)];
+    if (!cds.length)
+        return cwd;
+    const target = cds[0][1].trim().replace(/^(["'])(.*)\1$/, "$2");
+    // `$PWD` is the one variable whose value is known here.
+    const rest = target.replace(/^\$(?:PWD\b|\{PWD\})/, "");
+    if (cds.length > 1 || !target || /[$`*?~]/.test(rest))
+        return null;
+    return rest === target ? resolve(cwd, target) : resolve(cwd, "." + rest);
 }
 /** Record what happened, then hand judgment calls to Jev. Nothing here can block. */
 async function post(ctx, deps) {

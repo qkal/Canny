@@ -286,6 +286,13 @@ describe("pre checks", () => {
     expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE >> .env.local")).toEqual({
       kind: "allow",
     });
+    // Agents open commands with a `cd` to where they already are; that moves nothing.
+    for (const cd of ['cd "$PWD"; ', `cd ${cwd} && `, "cd . && "])
+      expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local`)).kind).toBe(
+        "allow",
+      );
+    for (const cd of ["cd $OTHER && ", "cd /tmp && ", "cd . && cd sub && "])
+      expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local`)).kind).toBe("deny");
     expect(await bash("echo AWS_KEY=AKIAIOSFODNN7EXAMPLE | tee .env.local src/k.ts")).toMatchObject(
       {
         kind: "deny",
