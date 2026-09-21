@@ -84,7 +84,8 @@ function once(task, arm) {
   if (arm === "canny")
     execFileSync("node", [cli, "init", `--${opts.agent === "codex" ? "codex" : "claude"}`], { cwd: project, env, stdio: "ignore" }); // prettier-ignore
   const started = Date.now();
-  const agent = spawnSync("sh", ["-c", agentCmd.replaceAll("{task}", src)], {
+  // The path goes in as `$1`, not as text, so a checkout under a directory with a space still works.
+  const agent = spawnSync("sh", ["-c", agentCmd.replaceAll("{task}", '"$1"'), "agent", src], {
     cwd: project,
     // A stand-in agent cannot read the prompt, so it gets the key directly.
     env: { ...env, PROMPT: prompt, ...(opts["agent-cmd"] && { BENCH_SECRET: secret }) },
