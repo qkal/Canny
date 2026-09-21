@@ -45,7 +45,7 @@
     "test:smoke": "bash test/smoke.sh",
     "check": "pnpm format:check && pnpm type-check && pnpm lint && pnpm test:coverage && pnpm build && git diff --exit-code -- dist",
     "prepack": "pnpm build",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config --get core.hooksPath || git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",

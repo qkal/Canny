@@ -27,7 +27,7 @@ pnpm test:smoke
 
 This one replays the README install in a temp directory: a checkout with only `dist/` and `package.json`, `init` in a scratch project, then the hook command `init` wrote, run as the agent runs it. It sets `HOME` and `CANNY_HOME` to temp directories first, so your own agent config is never touched.
 
-`pnpm install` points git at `.githooks/`, so `pnpm check` also runs before every commit. It takes about two seconds. When it fails on the `dist/` diff, the build it just ran has already fixed `dist/`: `git add dist` and commit again.
+`pnpm install` points git at `.githooks/`, so `pnpm check` also runs before every commit. A `core.hooksPath` you already set, for this repository or globally, is left as it is: run `pnpm check` yourself, or call `.githooks/pre-commit` from your own hook. It takes about two seconds. When it fails on the `dist/` diff, the build it just ran has already fixed `dist/`: `git add dist` and commit again.
 
 CI runs the static gates once, the tests on Node 22, 24, and 26 on Linux and on macOS, the smoke test on both, and CodeQL. The jobs are in `.github/workflows/`. `ci-ok` passes only when `static`, every `test` cell, and both `smoke` jobs did, so it is the one check to require on `main` for those. CodeQL is its own workflow, which `ci-ok` cannot wait for: its job is `analyze`, and it only blocks a merge if that check is required too.
 

@@ -26,12 +26,15 @@ const events = jsonl(raw).filter(
 );
 const transcript = events.find((e) => e.transcript_path)?.transcript_path;
 
+// Numbered in order of first use, so an event and its rollout record still name the same call.
+const calls = [...new Set(events.map((e) => e.tool_use_id).filter(Boolean))];
 // Longest first, so the project path goes before the temp and home directories that contain it.
 const replacements = [
   [project, "/repo"],
   [project.replace(/^\/private/, ""), "/repo"],
   [homedir(), "/home/user"],
   [userInfo().username, "user"],
+  ...calls.map((id, i) => [id, `call-${i + 1}`]),
 ];
 const FIXED = {
   session_id: "session",
