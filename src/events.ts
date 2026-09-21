@@ -337,16 +337,32 @@ export function writeTargets(cmd: string): string[] {
   return out.map(unquote).filter((t) => t && !NOT_A_FILE.test(t));
 }
 
-/** Each `sed -i` or `perl -pi` in a command: its script tokens, and the files it rewrites. */
+/** `-i`, alone or in a cluster such as `-Ei` or `-pi.bak`. Perl's `-M` and `-I` take a word, not flags. */
+const IN_PLACE = { sed: /^(?:-[a-zA-Z]*i|--in-place)/, perl: /^-(?![MI])[a-zA-Z0]*i/ };
+/** Options whose value is the script: `-e`, `-f`, a cluster ending in one (`-pie`), and sed's long forms. */
+const TAKES_SCRIPT = /^(?:-[a-zA-Z]*[ef]|--expression|--file)$/;
+
+/** Each in-place `sed` or `perl` in a command: its scripts, and the files it rewrites. */
 function inPlace(cmd: string): { scripts: string[]; files: string[] }[] {
   const out: { scripts: string[]; files: string[] }[] = [];
-  for (const m of cmd.matchAll(/\b(?:sed\s+-i\S*|perl\s+-p?i\S*)\s+([^;&|]+)/g)) {
+  // Quoted strings are whole arguments: a script holds `;` and `|` that end nothing.
+  for (const m of cmd.matchAll(/\b(sed|perl)\s+((?:"[^"]*"|'[^']*'|[^;&|\n"'])+)/g)) {
+    const flag = IN_PLACE[m[1] as "sed" | "perl"];
+    const tokens: string[] = m[2]!.match(TOKENS) ?? [];
+    if (!tokens.some((t) => flag.test(t))) continue;
     const edit = { scripts: [] as string[], files: [] as string[] };
-    let scriptNext = false;
-    for (const t of m[1]!.match(TOKENS) ?? []) {
-      if (scriptNext || /^["']/.test(t) || /^s[/|#]/.test(t)) edit.scripts.push(unquote(t));
-      else if (!t.startsWith("-")) edit.files.push(t);
-      scriptNext = t === "-e" || t === "-f";
+    const named = tokens.some((t) => TAKES_SCRIPT.test(t) || t.startsWith("--expression="));
+    for (const [i, t] of tokens.entries()) {
+      const before = tokens[i - 1] ?? "";
+      if (/^\d?[<>]/.test(t)) break;
+      if (TAKES_SCRIPT.test(before)) edit.scripts.push(unquote(t));
+      else if (t.startsWith("--expression=")) edit.scripts.push(unquote(t.slice(13)));
+      else if (t.startsWith("-")) continue;
+      // BSD sed takes the backup suffix as its own argument: `sed -i '' …`, `sed -i .bak …`.
+      else if (flag.test(before) && /^(?:''|""|\.\w+)$/.test(t)) continue;
+      // With no `-e`, the first operand is the script and the rest are files, quoted or not.
+      else if (!named && !edit.scripts.length) edit.scripts.push(unquote(t));
+      else edit.files.push(t);
     }
     out.push(edit);
   }
@@ -364,7 +380,7 @@ const SUBSTITUTE = /(?:^|;)\s*s([/|#,])((?:\\.|(?!\1)[^\\])*)\1((?:\\.|(?!\1)[^\
 export function shellEdits(cmd: string): FileChange[] {
   const changes: FileChange[] = [];
   for (const w of shellWrites(cmd)) {
-    const wholeFile = !/>>|\btee\s+(?:-\S+\s+)*-\S*a/.test(w.head);
+    const wholeFile = !/>>|\btee\s+(?:-\S+\s+)*(?:-[a-zA-Z]*a|--append)\b/.test(w.head);
     for (const path of w.targets) changes.push({ path, added: w.text, removed: "", wholeFile });
   }
   for (const e of inPlace(cmd)) {

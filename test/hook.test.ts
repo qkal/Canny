@@ -324,16 +324,25 @@ describe("pre checks", () => {
         "perl -pi -e 's/\\bit\\(/xit(/' test/a.test.ts",
         "cat > test/a.test.ts <<'EOF'\nit('a', f);\nEOF",
         "echo \"it.only('c', f);\" >> test/a.test.ts",
+        "sed -i '/it(/d; /test(/d' test/a.test.ts",
+        "sed -i 's/it(.*//g' 'test/a.test.ts'",
+        "sed -E --in-place 's/it\\(/it.skip(/' test/a.test.ts",
+        "sed -i --expression='s/it(/it.skip(/' test/a.test.ts",
+        "perl -w -pi.bak -e 's/\\bit\\(/xit(/' test/a.test.ts",
+        "echo \"it('a', f);\" | tee --output-error=warn test/a.test.ts",
       ]),
-    ).toEqual(["ask", "ask", "ask", "ask", "ask"]);
+    ).toEqual(Array(11).fill("ask"));
     expect(
       await kinds([
         "sed -i 's/oldName/newName/g' test/a.test.ts",
         "sed -i '/it(/d' src/a.ts",
         "cat > test/a.test.ts <<'EOF'\nit('a', f);\nit('b', f);\nit('c', f);\nEOF",
         "echo \"it('c', f);\" >> test/a.test.ts",
+        "echo \"it('c', f);\" | tee -a test/a.test.ts",
+        "echo \"it('c', f);\" | tee --append test/a.test.ts",
+        "sed 's/it(/it.skip(/' test/a.test.ts | head",
       ]),
-    ).toEqual(["allow", "allow", "allow", "allow"]);
+    ).toEqual(Array(7).fill("allow"));
     expect(await bash("sed -i '/it(/d' test/a.test.ts")).toMatchObject({
       message: expect.stringContaining("this command removes 1 test case from test/a.test.ts"),
     });
