@@ -299,7 +299,8 @@ function inPlace(cmd) {
     }
     return out;
 }
-const SUBSTITUTE = /(?:^|;)\s*s([/|#,])((?:\\.|(?!\1)[^\\])*)\1((?:\\.|(?!\1)[^\\])*)\1/g;
+// An address may come first: `/it(/s/a/b/`, `1,5s/a/b/`, `$s/a/b/`.
+const SUBSTITUTE = /(?:^|[;{/\d$]|\s)\s*s([/|#,])((?:\\.|(?!\1)[^\\])*)\1((?:\\.|(?!\1)[^\\])*)\1/g;
 /**
  * What a shell command does to files, in the shape of an edit, so the checks that read edits read
  * it too. A redirect replaces the file unless it appends. An in-place script is not run: the text
@@ -309,7 +310,9 @@ const SUBSTITUTE = /(?:^|;)\s*s([/|#,])((?:\\.|(?!\1)[^\\])*)\1((?:\\.|(?!\1)[^\
 export function shellEdits(cmd) {
     const changes = [];
     for (const w of shellWrites(cmd)) {
-        const wholeFile = !/>>|\btee\s+(?:-\S+\s+)*(?:-[a-zA-Z]*a|--append)\b/.test(w.head);
+        const wholeFile = !/>>|\btee\s+(?:-\S+\s+)*(?:-[a-zA-Z]*a|--append)\b/.test(
+        // Quoted text is payload, not shell: `echo ">>" > file` replaces the file.
+        w.head.replace(/"[^"]*"|'[^']*'/g, ""));
         for (const path of w.targets)
             changes.push({ path, added: w.text, removed: "", wholeFile });
     }

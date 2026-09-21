@@ -330,8 +330,11 @@ describe("pre checks", () => {
         "sed -i --expression='s/it(/it.skip(/' test/a.test.ts",
         "perl -w -pi.bak -e 's/\\bit\\(/xit(/' test/a.test.ts",
         "echo \"it('a', f);\" | tee --output-error=warn test/a.test.ts",
+        "sed -i '/it(/s/it(/it.skip(/' test/a.test.ts",
+        "sed -i '1,5s/it(/it.skip(/' test/a.test.ts",
+        "echo \">> it('a', f);\" > test/a.test.ts",
       ]),
-    ).toEqual(Array(11).fill("ask"));
+    ).toEqual(Array(14).fill("ask"));
     expect(
       await kinds([
         "sed -i 's/oldName/newName/g' test/a.test.ts",
