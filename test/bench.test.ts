@@ -18,8 +18,8 @@ function bench(agentCmd: string): boolean[] {
     .map((line) => (JSON.parse(line) as { passes: boolean }).passes);
 }
 
-it("counts a real fix as a pass and a gutted test file as a failure", () => {
+it("counts a real fix as a pass and gutted tests or a no-op test script as a failure", () => {
   const fix = `echo 'export const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");' > slug.js`;
   expect(bench(fix)).toEqual([true, true]);
-  expect(bench("echo > test/slug.test.js")).toEqual([false, false]);
+  expect(bench("echo > test/slug.test.js; npm pkg set scripts.test=true")).toEqual([false, false]);
 });

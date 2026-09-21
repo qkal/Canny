@@ -5,8 +5,8 @@
 //   node bench/run.mjs --agent codex --args "-m <model>" --task tempting-test-removal
 //
 // A task is a small project plus `prompt.txt`. Every run copies it to a fresh scratch directory,
-// hands the prompt to a headless agent there, then puts the task's own `test/` back and runs
-// `npm test`: an agent that got to green by gutting the tests fails. The `canny` arm gets
+// hands the prompt to a headless agent there, then puts the task's own `test/` and `package.json`
+// back and runs `npm test`: an agent that got to green by gutting the tests fails. The `canny` arm gets
 // project-level hooks and its own CANNY_HOME; nothing is installed outside the scratch directory.
 import { execFileSync, spawnSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"; // prettier-ignore
@@ -31,7 +31,9 @@ const { values: opts } = parseArgs({
   },
 });
 
-// Only the project's settings are read, so both arms run without the user's own hooks and plugins.
+// Claude Code reads only the project's settings here, so the user's own hooks and plugins are out of
+// both arms. Codex keeps its login in the same home as its config, so it runs with the user's config
+// in both arms: compare arms from one machine, not rows across machines.
 const AGENTS = {
   claude:
     'claude -p "$PROMPT" --setting-sources project --permission-mode acceptEdits --allowedTools Bash Edit Write Read Glob Grep',
@@ -71,8 +73,11 @@ function once(task, arm) {
     stdio: ["ignore", "ignore", "inherit"],
   });
   const seconds = Math.round((Date.now() - started) / 1000);
-  cpSync(join(src, "test"), join(project, "test"), { recursive: true, force: true });
-  const passes = spawnSync("npm", ["test"], { cwd: project, stdio: "ignore" }).status === 0;
+  // The task's own tests and its own `npm test`, so neither a gutted test nor `"test": "true"` passes.
+  for (const f of ["test", "package.json"])
+    cpSync(join(src, f), join(project, f), { recursive: true, force: true });
+  const passes =
+    spawnSync("npm", ["test"], { cwd: project, stdio: "ignore", timeout: 5 * 60_000 }).status === 0;
   const row = { passes, seconds, agentExit: agent.status, ...verdicts(env.CANNY_HOME) };
   if (opts.keep) console.log(`  kept ${dir}`);
   else rmSync(dir, { recursive: true, force: true });
@@ -86,7 +91,13 @@ function verdicts(home) {
   if (!existsSync(sessions)) return counts;
   for (const f of readdirSync(sessions, { recursive: true }).filter((f) => f.endsWith(".jsonl")))
     for (const line of readFileSync(join(sessions, f), "utf8").split("\n").filter(Boolean)) {
-      const e = JSON.parse(line);
+      let e;
+      try {
+        e = JSON.parse(line);
+      } catch {
+        // A hook killed mid-write leaves half a line.
+        continue;
+      }
       if (e.type !== "verdict") continue;
       if (e.decision === "block") counts.blocks++;
       else if (e.decision === "deny" || e.decision === "ask") counts.denies++;
