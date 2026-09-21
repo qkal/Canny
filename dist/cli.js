@@ -8,7 +8,7 @@ import { findConfig, home, loadConfig, trust, WEAKENING } from "./config.js";
 import { normalize } from "./events.js";
 import { decideStop, handle, serialize } from "./hook.js";
 import { makeJudge } from "./jev.js";
-import { append, listSessions, read, sessionFile, summarize } from "./ledger.js";
+import { append, hookErrors, latestSession, listSessions, read, sessionCwd, sessionFile, summarize, } from "./ledger.js";
 const { values: opts, positionals } = parseArgs({
     options: {
         agent: { type: "string" },
@@ -31,7 +31,7 @@ switch (cmd) {
         break;
     case "sessions":
         for (const s of listSessions())
-            console.log(`${new Date(s.mtime).toISOString()}  ${s.file}`);
+            console.log(`${new Date(s.mtime).toISOString()}  ${s.file}  ${sessionCwd(read(s.file)) ?? "(project not recorded)"}`);
         break;
     case "replay":
         replay();
@@ -88,11 +88,9 @@ function init() {
         codex: explicit ? Boolean(opts.codex) : found.codex || neither,
     };
     // A PATH lookup survives upgrades of canny and of Node. Absolute paths into a package store do not.
-    const portable = onPath("canny");
-    const cli = fileURLToPath(import.meta.url);
-    const command = (agent) => portable ? `canny hook --agent ${agent}` : `node "${cli}" hook --agent ${agent}`;
-    if (!portable)
-        console.log(`Hooks call node with the path of this checkout, ${cli}. Keep it there.`);
+    const command = (agent) => `${self()} hook --agent ${agent}`;
+    if (!onPath("canny"))
+        console.log(`Hooks call node with the path of this checkout, ${fileURLToPath(import.meta.url)}. Keep it there.`);
     const handler = (agent, timeout, matcher) => ({
         ...(matcher && { matcher }),
         hooks: [{ type: "command", command: command(agent), timeout, statusMessage: "Canny" }],
@@ -115,6 +113,11 @@ function init() {
         });
         console.log("Codex asks you to trust new hooks once: run /hooks inside Codex.");
     }
+}
+/** How to run this CLI from a shell: the bare name when it is on PATH, else node with this file. */
+// A declaration, not a const: the command switch at the top of the file runs before any const below it exists.
+function self() {
+    return onPath("canny") ? "canny" : `node "${fileURLToPath(import.meta.url)}"`;
 }
 /** Whether a command of this name resolves on the current PATH. */
 function onPath(name) {
@@ -182,13 +185,14 @@ function trustConfig() {
         ? `trusted ${found.file}: ${fields.join(", ")} now take effect`
         : `trusted ${found.file}`);
 }
+/** The named session file, or else the latest session of the project the user is standing in. */
 function pick() {
-    const file = target ?? listSessions()[0]?.file;
-    if (!file) {
-        console.log(`no sessions recorded under ${home()}`);
-        return null;
-    }
-    return { file, entries: read(file) };
+    if (target)
+        return { file: target, entries: read(target) };
+    const found = latestSession(process.cwd());
+    if (!found)
+        console.log(`no sessions recorded for ${process.cwd()} under ${home()}; \`${self()} sessions\` lists every project's`);
+    return found;
 }
 function status() {
     // Before the session lookup: a fresh project has no sessions yet but can already have a config.
@@ -196,8 +200,12 @@ function status() {
     if (config && !config.trusted) {
         const ignored = WEAKENING.filter((f) => config.config[f] !== undefined);
         if (ignored.length)
-            console.log(`config    ${config.file} is untrusted, so ${ignored.join(", ")} ${ignored.length > 1 ? "are" : "is"} ignored; \`canny trust\` accepts it`);
+            console.log(`config    ${config.file} is untrusted, so ${ignored.join(", ")} ${ignored.length > 1 ? "are" : "is"} ignored; \`${self()} trust\` accepts it`);
     }
+    // Also before the lookup: a hook that crashes on every event records no session at all.
+    const errors = hookErrors();
+    if (errors)
+        console.log(`errors    ${errors.count} hook ${errors.count === 1 ? "crash" : "crashes"} in ${join(home(), "errors.log")}, and a crashed hook checks nothing. Last: ${errors.last}`);
     const picked = pick();
     if (!picked)
         return;
@@ -206,6 +214,7 @@ function status() {
     const stops = entries.filter((e) => e.type === "verdict" && e.phase === "stop");
     const jev = entries.filter((e) => e.type === "jev");
     console.log(`session   ${basename(file)}`);
+    console.log(`project   ${sessionCwd(entries) ?? "(not recorded)"}`);
     console.log(`events    ${entries.filter((e) => e.type === "event").length}`);
     console.log(`edited    ${s.codeFiles.length ? s.codeFiles.join(", ") : "nothing that needs a check"}`);
     console.log(`verified  ${s.verified ? `yes: \`${s.verified.command}\` passed after the last edit` : "no passing check since the last edit"}`);
@@ -223,7 +232,8 @@ function replay() {
     if (!picked)
         return;
     const { entries } = picked;
-    const config = loadConfig(process.cwd());
+    // The config that applied is the one of the project the session ran in, wherever replay is run from.
+    const config = loadConfig(sessionCwd(entries) ?? process.cwd());
     let mismatches = 0;
     entries.forEach((e, i) => {
         if (e.type !== "event" || e.fact.kind !== "stop")

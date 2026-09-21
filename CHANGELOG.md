@@ -12,6 +12,10 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
+- The ledger records the directory the agent worked in. `canny status` and `canny replay` pick the latest session of the project you run them in, not the latest session of any project, and `replay` loads the config of the session's project wherever it is run from. `canny sessions` lists each session's project. Ledgers written before this have no project and are only reachable by file name.
+- `canny status` prints how many times the hook crashed and the last error, before anything else. The hook fails open, so a crash used to be visible only in `~/.canny/errors.log`.
+- Messages that name a command print `node "<checkout>/dist/cli.js" …` when there is no `canny` on PATH, which is the case after the documented install.
+
 - `verify`, `ignore`, `rules`, and `allow` in a `.canny.json` are ignored until the file is trusted, since it sits in the repository the agent is editing: a cloned repo can ship one and a blocked agent can write one. `rules` is on the list because it replaces the `CLAUDE.md` extraction, so one junk rule in an untrusted file would silence every rule the project wrote. `strict` is still read from any config. Existing projects need one `canny trust` for those four fields to work again.
 - `canny status` prints the untrusted-config line before it looks for a session, so a fresh project with no recorded sessions still sees it, and names only the fields the file actually sets.
 - A `.canny.json` holding valid JSON that is not an object — `null`, an array, a number — is read as no config at all instead of throwing in `canny status` and `canny trust`.

@@ -6,7 +6,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fingerprint, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
 import { home, type Config } from "./config.js";
 import type { Agent, Event, Phase } from "./events.js";
@@ -28,9 +28,18 @@ export type Fact =
   | CommandFact
   | { kind: "stop"; stopHookActive: boolean; messageHash: string };
 
+/** `cwd` is missing from ledgers written before it was recorded. */
 export type Entry =
-  | { ts: number; type: "event"; phase: Phase; hookEvent: string; tool: string; fact: Fact }
-  | { ts: number; type: "verdict"; phase: Phase; decision: string; message?: string }
+  | {
+      ts: number;
+      type: "event";
+      cwd?: string;
+      phase: Phase;
+      hookEvent: string;
+      tool: string;
+      fact: Fact;
+    }
+  | { ts: number; type: "verdict"; cwd?: string; phase: Phase; decision: string; message?: string }
   | ({ ts: number; type: "jev" } & JevLog);
 
 export const sessionsDir = (): string => join(home(), "sessions");
@@ -87,9 +96,15 @@ export function append(file: string, entry: Entry): void {
   appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 });
 }
 
+/** A ledger that is missing, unreadable, or not a file reads as empty, so one bad file never hides the others. */
 export function read(file: string): Entry[] {
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+  return text
     .split("\n")
     .filter(Boolean)
     .flatMap((line) => {
@@ -145,11 +160,51 @@ export function summarize(entries: Entry[]): Summary {
   return s;
 }
 
+/** The directory the agent was working in, which says which project a session belongs to. */
+export const sessionCwd = (entries: Entry[]): string | undefined =>
+  entries.flatMap((e) => (e.type !== "jev" && e.cwd ? [e.cwd] : []))[0];
+
+/** One directory is the other, or sits inside it: the agent may run in a subdirectory of where the user stands, or the reverse. */
+export const sameProject = (a: string, b: string): boolean => inside(a, b) || inside(b, a);
+
+/** `relative` gets the filesystem root and Windows drives right, which string prefixes do not. */
+const inside = (parent: string, child: string): boolean => {
+  const r = relative(parent, child);
+  return r !== ".." && !r.startsWith(".." + sep) && !isAbsolute(r);
+};
+
+/** The most recent session recorded for the project at `cwd`. */
+// ponytail: reads whole ledgers newest first until one matches; add an index file if ~/.canny/sessions grows into the thousands
+export function latestSession(cwd: string): { file: string; entries: Entry[] } | null {
+  for (const { file } of listSessions()) {
+    const entries = read(file);
+    const at = sessionCwd(entries);
+    if (at && sameProject(at, cwd)) return { file, entries };
+  }
+  return null;
+}
+
+/** The hook fails open, so its crashes are only visible here. */
+export function hookErrors(): { count: number; last: string } | null {
+  let lines: string[];
+  try {
+    lines = readFileSync(join(home(), "errors.log"), "utf8").split("\n").filter(Boolean);
+  } catch {
+    // No log, or one that cannot be read: `status` still has a session to show.
+    return null;
+  }
+  return lines.length ? { count: lines.length, last: plain(lines.at(-1)!).slice(0, 200) } : null;
+}
+
 export function listSessions(): { file: string; mtime: number }[] {
   const dir = sessionsDir();
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => f.endsWith(".jsonl"))
-    .map((f) => ({ file: join(dir, f), mtime: statSync(join(dir, f)).mtimeMs }))
+    .flatMap((f) => {
+      // A file can vanish between the listing and the stat.
+      const stat = statSync(join(dir, f), { throwIfNoEntry: false });
+      return stat ? [{ file: join(dir, f), mtime: stat.mtimeMs }] : [];
+    })
     .sort((a, b) => b.mtime - a.mtime);
 }

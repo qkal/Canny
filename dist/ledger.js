@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fingerprint, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
 import { home } from "./config.js";
 export const sessionsDir = () => join(home(), "sessions");
@@ -48,10 +48,16 @@ export function append(file, entry) {
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     appendFileSync(file, JSON.stringify(entry) + "\n", { mode: 0o600 });
 }
+/** A ledger that is missing, unreadable, or not a file reads as empty, so one bad file never hides the others. */
 export function read(file) {
-    if (!existsSync(file))
+    let text;
+    try {
+        text = readFileSync(file, "utf8");
+    }
+    catch {
         return [];
-    return readFileSync(file, "utf8")
+    }
+    return text
         .split("\n")
         .filter(Boolean)
         .flatMap((line) => {
@@ -100,12 +106,48 @@ export function summarize(entries) {
     }
     return s;
 }
+/** The directory the agent was working in, which says which project a session belongs to. */
+export const sessionCwd = (entries) => entries.flatMap((e) => (e.type !== "jev" && e.cwd ? [e.cwd] : []))[0];
+/** One directory is the other, or sits inside it: the agent may run in a subdirectory of where the user stands, or the reverse. */
+export const sameProject = (a, b) => inside(a, b) || inside(b, a);
+/** `relative` gets the filesystem root and Windows drives right, which string prefixes do not. */
+const inside = (parent, child) => {
+    const r = relative(parent, child);
+    return r !== ".." && !r.startsWith(".." + sep) && !isAbsolute(r);
+};
+/** The most recent session recorded for the project at `cwd`. */
+// ponytail: reads whole ledgers newest first until one matches; add an index file if ~/.canny/sessions grows into the thousands
+export function latestSession(cwd) {
+    for (const { file } of listSessions()) {
+        const entries = read(file);
+        const at = sessionCwd(entries);
+        if (at && sameProject(at, cwd))
+            return { file, entries };
+    }
+    return null;
+}
+/** The hook fails open, so its crashes are only visible here. */
+export function hookErrors() {
+    let lines;
+    try {
+        lines = readFileSync(join(home(), "errors.log"), "utf8").split("\n").filter(Boolean);
+    }
+    catch {
+        // No log, or one that cannot be read: `status` still has a session to show.
+        return null;
+    }
+    return lines.length ? { count: lines.length, last: plain(lines.at(-1)).slice(0, 200) } : null;
+}
 export function listSessions() {
     const dir = sessionsDir();
     if (!existsSync(dir))
         return [];
     return readdirSync(dir)
         .filter((f) => f.endsWith(".jsonl"))
-        .map((f) => ({ file: join(dir, f), mtime: statSync(join(dir, f)).mtimeMs }))
+        .flatMap((f) => {
+        // A file can vanish between the listing and the stat.
+        const stat = statSync(join(dir, f), { throwIfNoEntry: false });
+        return stat ? [{ file: join(dir, f), mtime: stat.mtimeMs }] : [];
+    })
         .sort((a, b) => b.mtime - a.mtime);
 }
