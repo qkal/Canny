@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findSecrets, fingerprint, isVerify, plain } from "../src/checks.js";
-import { fileOps, normalize, shellWrites, writeTargets } from "../src/events.js";
+import { fileOps, normalize, shellEdits, shellWrites, writeTargets } from "../src/events.js";
 import { handle } from "../src/hook.js";
 import { sessionFile } from "../src/ledger.js";
 import { extractRules } from "../src/rules.js";
@@ -49,6 +49,7 @@ describe("hostile text", () => {
   const inputs: [string, string][] = [
     ["unclosed heredocs", "cat <<A\n".repeat(N / 8)],
     ["unclosed quotes", "\"'".repeat(N / 2)],
+    ["escaped quotes that never close", '"' + '\\"'.repeat(N / 2)],
     ["bare redirects", "> ".repeat(N / 2)],
     ["tee flags", "tee " + "-a ".repeat(N / 3)],
     ["one long path", "rm " + "a/".repeat(N / 2)],
@@ -64,6 +65,7 @@ describe("hostile text", () => {
     writeTargets,
     fileOps,
     shellWrites,
+    shellEdits,
     findSecrets,
     plain,
     extractRules,

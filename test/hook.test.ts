@@ -199,6 +199,7 @@ describe("pre checks", () => {
       message: expect.stringContaining("src/k.ts"),
     });
     expect((await bash(`echo "const k = '${key}';" > src/k.ts`)).kind).toBe("deny");
+    expect((await bash(`echo "a 5\\" pipe; const k = '${key}'" > src/k.ts`)).kind).toBe("deny");
     expect(await bash(`cat > src/k.ts <<'EOF'\nconst k = '${key}'\nEOF`)).toMatchObject({
       kind: "deny",
     });

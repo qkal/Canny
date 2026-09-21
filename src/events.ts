@@ -219,9 +219,12 @@ const withoutHeredocs = (cmd: string): string => cmd.replace(HEREDOC, (m) => m.s
 
 const unquote = (t: string): string => t.replace(/^["']|["']$/g, "");
 
+/** A quoted shell string. Inside double quotes `\"` is text, not the end: `echo "{\"a\": 1};" > f`. */
+const QUOTED = String.raw`"(?:\\.|[^"\\])*"|'[^']*'`;
+
 /** Shell word splitting, kept in one place so every argument list splits the same way. */
 // Safe to share: `String.prototype.match` with a `/g` regex resets `lastIndex`. Do not use with `.test`.
-const TOKENS = /"[^"]*"|'[^']*'|\S+/g;
+const TOKENS = new RegExp(String.raw`${QUOTED}|\S+`, "g");
 
 export interface FileOps {
   /** Destinations of `cp` and `mv`, and files `git checkout --` or `git restore` overwrite. */
@@ -284,7 +287,7 @@ const PRINTS = /(?:^|[\s|(/])(?:echo|printf)\s/;
 /** Split at `;`, `&&`, `||`, and newlines, but not inside quotes: written code is full of `;`. */
 function statements(cmd: string): string[] {
   const out = [""];
-  cmd.split(/("[^"]*"|'[^']*')/).forEach((part, i) => {
+  cmd.split(new RegExp(`(${QUOTED})`)).forEach((part, i) => {
     const pieces = i % 2 ? [part] : part.split(/&&|\|\||[;\n]/);
     out.push(out.pop()! + pieces[0]!, ...pieces.slice(1));
   });
@@ -326,11 +329,11 @@ export function writeTargets(cmd: string): string[] {
   // Quoted strings hold text, not redirections: `a > b` in a commit message. A quoted string right
   // after `>` or `tee` is a file name and stays.
   const shell = withoutHeredocs(cmd).replace(
-    /(>\s*|\btee\s+(?:-[ai]+\s+)*)?("[^"]*"|'[^']*')/g,
+    new RegExp(String.raw`(>\s*|\btee\s+(?:-[ai]+\s+)*)?(${QUOTED})`, "g"),
     (m, keep?: string) => (keep ? m : ""),
   );
-  for (const m of shell.matchAll(/(?:^|[\s;&|(])\d?>{1,2}\s*("[^"]*"|'[^']*'|[^\s;&|)<>]+)/g))
-    out.push(m[1]!);
+  const redirect = new RegExp(String.raw`(?:^|[\s;&|(])\d?>{1,2}\s*(${QUOTED}|[^\s;&|)<>]+)`, "g");
+  for (const m of shell.matchAll(redirect)) out.push(m[1]!);
   for (const m of shell.matchAll(/\btee\s+([^;&|)<>]+)/g))
     for (const t of m[1]!.match(TOKENS) ?? []) if (!t.startsWith("-")) out.push(t);
   for (const e of inPlace(cmd)) out.push(...e.files);
@@ -346,7 +349,8 @@ const TAKES_SCRIPT = /^(?:-[a-zA-Z]*[ef]|--expression|--file)$/;
 function inPlace(cmd: string): { scripts: string[]; files: string[] }[] {
   const out: { scripts: string[]; files: string[] }[] = [];
   // Quoted strings are whole arguments: a script holds `;` and `|` that end nothing.
-  for (const m of cmd.matchAll(/\b(sed|perl)\s+((?:"[^"]*"|'[^']*'|[^;&|\n"'])+)/g)) {
+  const call = new RegExp(String.raw`\b(sed|perl)\s+((?:${QUOTED}|[^;&|\n"'])+)`, "g");
+  for (const m of cmd.matchAll(call)) {
     const flag = IN_PLACE[m[1] as "sed" | "perl"];
     const tokens: string[] = m[2]!.match(TOKENS) ?? [];
     if (!tokens.some((t) => flag.test(t))) continue;
@@ -383,7 +387,7 @@ export function shellEdits(cmd: string): FileChange[] {
   for (const w of shellWrites(cmd)) {
     const wholeFile = !/>>|\btee\s+(?:-\S+\s+)*(?:-[a-zA-Z]*a|--append)\b/.test(
       // Quoted text is payload, not shell: `echo ">>" > file` replaces the file.
-      w.head.replace(/"[^"]*"|'[^']*'/g, ""),
+      w.head.replace(new RegExp(QUOTED, "g"), ""),
     );
     for (const path of w.targets) changes.push({ path, added: w.text, removed: "", wholeFile });
   }
