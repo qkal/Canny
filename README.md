@@ -225,7 +225,7 @@ Both were verified against live sessions: a Stop was blocked, the agent ran the 
 
 ## Does it help?
 
-Honest answer: it stops the specific failure at the top of this page, and it does so deterministically. Whether it improves an agent's work over a whole project has not been measured yet. [pi-warden](https://github.com/DevMortimer/pi-warden), which does something similar for the Pi agent, published an A/B run of 4 versus 3 rule violations, which is not a difference. Canny's replay log is meant to be the calibration set for exactly that measurement, and it is the next thing to build. If you run Canny on real work and keep the ledgers, they are the data.
+Honest answer: it stops the specific failure at the top of this page, and it does so deterministically. Whether it improves an agent's work over a whole project has not been measured yet. [pi-warden](https://github.com/DevMortimer/pi-warden), which does something similar for the Pi agent, published an A/B run of 4 versus 3 rule violations, which is not a difference. The harness for that measurement is in [`bench/`](bench/run.mjs): `node bench/run.mjs --agent claude --runs 5` gives each task in `bench/tasks` to a headless agent in a scratch directory, with and without Canny, then puts the task's own tests back and runs them. It has two tasks so far and no published numbers; a task is a small project plus a `prompt.txt`. If you run Canny on real work and keep the ledgers, they are the data.
 
 The Jev half was built against TypeSafe's API reference and their SDK source and is covered by tests with a mocked endpoint. If you have a key and something misbehaves, open an issue with the `canny status` output.
 

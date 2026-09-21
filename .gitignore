@@ -5,3 +5,6 @@ coverage/
 docs/plans/
 docs/brainstorms/
 docs/research/
+
+# measurement runs
+bench/results/

@@ -4,6 +4,10 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- `bench/run.mjs` measures Canny instead of asserting it: each task in `bench/tasks` goes to a headless Claude Code or Codex in a scratch directory, once with project-level Canny hooks and once without, and the run passes only when the task's original tests pass afterwards. Rows land in `bench/results/`, which git ignores.
+
 ### Changed
 
 - CI runs as parallel jobs: static gates once, the tests on Node 22, 24, and 26 on Linux plus Node 24 on macOS, a smoke test of the README install on both systems, and a CodeQL workflow. A newer push to a pull request cancels the older run.

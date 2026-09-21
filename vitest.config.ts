@@ -2,6 +2,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // The projects under bench/tasks carry their own tests, which start red on purpose.
+    include: ["test/**/*.test.ts"],
     setupFiles: ["./test/setup.ts"],
     coverage: {
       include: ["src/**"],
