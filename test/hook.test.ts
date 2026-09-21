@@ -420,6 +420,11 @@ describe("which project a session belongs to", () => {
 });
 
 describe("hookErrors", () => {
+  it("reads as no crashes when the log cannot be read", () => {
+    mkdirSync(join(process.env.CANNY_HOME!, "errors.log"));
+    expect(hookErrors()).toBeNull();
+  });
+
   it("counts crashes and cleans the last line for the terminal", () => {
     expect(hookErrors()).toBeNull();
     appendFileSync(

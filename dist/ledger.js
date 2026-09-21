@@ -128,10 +128,14 @@ export function latestSession(cwd) {
 }
 /** The hook fails open, so its crashes are only visible here. */
 export function hookErrors() {
-    const file = join(home(), "errors.log");
-    if (!existsSync(file))
+    let lines;
+    try {
+        lines = readFileSync(join(home(), "errors.log"), "utf8").split("\n").filter(Boolean);
+    }
+    catch {
+        // No log, or one that cannot be read: `status` still has a session to show.
         return null;
-    const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+    }
     return lines.length ? { count: lines.length, last: plain(lines.at(-1)).slice(0, 200) } : null;
 }
 export function listSessions() {
@@ -140,6 +144,10 @@ export function listSessions() {
         return [];
     return readdirSync(dir)
         .filter((f) => f.endsWith(".jsonl"))
-        .map((f) => ({ file: join(dir, f), mtime: statSync(join(dir, f)).mtimeMs }))
+        .flatMap((f) => {
+        // A file can vanish between the listing and the stat.
+        const stat = statSync(join(dir, f), { throwIfNoEntry: false });
+        return stat ? [{ file: join(dir, f), mtime: stat.mtimeMs }] : [];
+    })
         .sort((a, b) => b.mtime - a.mtime);
 }
