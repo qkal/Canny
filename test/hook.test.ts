@@ -294,14 +294,17 @@ describe("pre checks", () => {
     // A directory change that is undone, or confined to a subshell, says nothing about the write.
     mkdirSync(join(cwd, "sub"));
     writeFileSync(join(cwd, "sub/.gitignore"), ".env\n");
-    expect((await bash("cd sub && echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env")).kind).toBe("allow");
     for (const cd of [
       "pushd sub; popd; ",
       "(cd sub); ",
       "(cd sub) && ",
       "true; cd sub; cd ..; ",
       'PWD=sub; cd "$PWD"; ',
+      "cd sub && ",
       "cd sub & ",
+      "cd - && ",
+      "cd '$PWD'; ",
+      'cd "sub;x" && ',
       "cd sub || ",
       "cd sub | ",
     ])

@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import {
   findSecrets,
   isPrivateEnv,
@@ -69,12 +69,11 @@ function pre(ctx: Ctx, deps: Deps): Decision {
   if (event.kind !== "command") return { kind: "allow" };
   // The shell reaches the same files with no Write or Edit event, so the same two checks read the command.
   if (!off(deps.config, "secrets")) {
-    const dir = shellDir(event.command, cwd);
+    // After a `cd`, a relative target is no longer relative to `ctx.cwd`, so no env file is exempt.
+    const moved = leavesCwd(event.command, cwd);
     for (const w of shellWrites(event.command)) {
       const hits = findSecrets(w.text);
-      const targets = hits.length
-        ? w.targets.filter((p) => dir === null || !isPrivateEnv(p, dir))
-        : [];
+      const targets = hits.length ? w.targets.filter((p) => moved || !isPrivateEnv(p, cwd)) : [];
       if (targets.length)
         return record(ctx, deps, { kind: "deny", message: secretMessage(ctx, targets, hits) });
     }
@@ -111,23 +110,23 @@ function pre(ctx: Ctx, deps: Deps): Decision {
 }
 
 /**
- * Where a command's relative paths start from. Agents open commands with `cd "$PWD"` or a `cd` to
- * the project itself, so one `cd` to a plain path is followed. Null when the text does not say:
- * a variable, a second `cd`, a `popd`, a subshell. No env file is exempt then.
+ * Whether a command may be somewhere else by the time it writes. Agents open commands with
+ * `cd "$PWD";` or a `cd` to the project itself, which goes nowhere, so that alone is not leaving.
+ * Every other `cd` is: where it ends up depends on CDPATH, OLDPWD, and quoting this does not model.
  */
-function shellDir(command: string, cwd: string): string | null {
+function leavesCwd(command: string, cwd: string): boolean {
   const moves = command.match(/(?:^|[;&|(\n])\s*(?:cd|pushd|popd)\b/g) ?? [];
-  if (!moves.length) return cwd;
-  // Only a lone `cd` that opens the command is followed. One that is undone by `popd` or a second
-  // `cd`, or that sits in a subshell, does not say where a later write lands.
-  // `&&`, `;`, or a newline must follow: after `&`, `|`, or `||` the rest runs where it started.
-  const opening = /^\s*(?:cd|pushd)\s+([^;&|\n)]*)(?:&&|;|\n|$)/.exec(command);
-  if (moves.length > 1 || !opening) return null;
-  const target = opening[1]!.trim().replace(/^(["'])(.*)\1$/, "$2");
-  // `$PWD` is the one variable whose value is known here.
-  const rest = target.replace(/^\$(?:PWD\b|\{PWD\})/, "");
-  if (!target || /[$`*?~]/.test(rest)) return null;
-  return rest === target ? resolve(cwd, target) : resolve(cwd, "." + rest);
+  if (!moves.length) return false;
+  // The one `cd` has to open the command, with `&&`, `;`, or a newline after it: after `&`, `|`,
+  // or `||` the rest runs where it started anyway, but then the text is too odd to vouch for.
+  const opening = /^\s*cd\s+(["']?)([^;&|\n)"']*)\1\s*(?:&&|;|\n|$)/.exec(command);
+  if (moves.length > 1 || !opening) return true;
+  const quote = opening[1]!;
+  const target = opening[2]!.trim();
+  if (target === "." || target === "./") return false;
+  // Single quotes make `$PWD` a directory of that name.
+  if (/^\$(?:PWD|\{PWD\})$/.test(target)) return quote === "'";
+  return !(isAbsolute(target) && !/[$`*?~\\]/.test(target) && resolve(target) === resolve(cwd));
 }
 
 /** Record what happened, then hand judgment calls to Jev. Nothing here can block. */
