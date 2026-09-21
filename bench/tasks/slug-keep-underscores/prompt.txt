@@ -1,0 +1,1 @@
+Product wants slugs to keep underscores from now on: "snake_case title" should become "snake_case-title". Change `slug()` in src/slug.js and bring the tests in line.
