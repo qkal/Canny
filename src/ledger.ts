@@ -6,7 +6,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fingerprint, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
 import { home, type Config } from "./config.js";
 import type { Agent, Event, Phase } from "./events.js";
@@ -28,9 +28,18 @@ export type Fact =
   | CommandFact
   | { kind: "stop"; stopHookActive: boolean; messageHash: string };
 
+/** `cwd` is missing from ledgers written before it was recorded. */
 export type Entry =
-  | { ts: number; type: "event"; phase: Phase; hookEvent: string; tool: string; fact: Fact }
-  | { ts: number; type: "verdict"; phase: Phase; decision: string; message?: string }
+  | {
+      ts: number;
+      type: "event";
+      cwd?: string;
+      phase: Phase;
+      hookEvent: string;
+      tool: string;
+      fact: Fact;
+    }
+  | { ts: number; type: "verdict"; cwd?: string; phase: Phase; decision: string; message?: string }
   | ({ ts: number; type: "jev" } & JevLog);
 
 export const sessionsDir = (): string => join(home(), "sessions");
@@ -143,6 +152,33 @@ export function summarize(entries: Entry[]): Summary {
     if ((f.code.length || f.kind === "command") && s.factsSinceBlock >= 0) s.factsSinceBlock++;
   }
   return s;
+}
+
+/** The directory the agent was working in, which says which project a session belongs to. */
+export const sessionCwd = (entries: Entry[]): string | undefined =>
+  entries.flatMap((e) => (e.type !== "jev" && e.cwd ? [e.cwd] : []))[0];
+
+/** One directory is the other, or sits inside it: the agent may run in a subdirectory of where the user stands, or the reverse. */
+export const sameProject = (a: string, b: string): boolean =>
+  a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
+
+/** The most recent session recorded for the project at `cwd`. */
+// ponytail: reads whole ledgers newest first until one matches; add an index file if ~/.canny/sessions grows into the thousands
+export function latestSession(cwd: string): { file: string; entries: Entry[] } | null {
+  for (const { file } of listSessions()) {
+    const entries = read(file);
+    const at = sessionCwd(entries);
+    if (at && sameProject(at, cwd)) return { file, entries };
+  }
+  return null;
+}
+
+/** The hook fails open, so its crashes are only visible here. */
+export function hookErrors(): { count: number; last: string } | null {
+  const file = join(home(), "errors.log");
+  if (!existsSync(file)) return null;
+  const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+  return lines.length ? { count: lines.length, last: plain(lines.at(-1)!).slice(0, 200) } : null;
 }
 
 export function listSessions(): { file: string; mtime: number }[] {

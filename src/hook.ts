@@ -248,6 +248,7 @@ export function serialize(ctx: Ctx, d: Decision): Record<string, unknown> {
 const entry = (ctx: Ctx, fact: Fact) => ({
   ts: Date.now(),
   type: "event" as const,
+  cwd: plain(ctx.cwd),
   phase: ctx.phase,
   hookEvent: ctx.hookEvent,
   tool: ctx.tool,
@@ -258,6 +259,7 @@ function record(ctx: Ctx, deps: Deps, d: Decision): Decision {
   append(deps.file, {
     ts: Date.now(),
     type: "verdict",
+    cwd: plain(ctx.cwd),
     phase: ctx.phase,
     decision: d.kind,
     ...(d.kind !== "allow" && { message: d.message }),

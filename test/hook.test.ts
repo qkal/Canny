@@ -1,13 +1,28 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Config } from "../src/config.js";
 import { normalize, type Agent } from "../src/events.js";
 import { decideStop, handle, serialize, type Decision } from "../src/hook.js";
 import type { Answers, Judge } from "../src/jev.js";
-import { read, sessionFile, summarize } from "../src/ledger.js";
+import {
+  hookErrors,
+  latestSession,
+  read,
+  sameProject,
+  sessionCwd,
+  sessionFile,
+  summarize,
+} from "../src/ledger.js";
 
 let cwd: string;
 let file: string;
@@ -369,5 +384,40 @@ describe("ledger file", () => {
       tool_input: { command: "cd web &&\n  pnpm test" },
     });
     expect(d.kind).toBe("deny");
+  });
+});
+
+describe("which project a session belongs to", () => {
+  it("finds the latest session by the directory the agent worked in", async () => {
+    await edit();
+    expect(sessionCwd(read(file))).toBe(cwd);
+    expect(latestSession(cwd)?.file).toBe(file);
+    expect(latestSession(join(cwd, "src"))?.file).toBe(file);
+    expect(latestSession(mkdtempSync(join(tmpdir(), "canny-other-")))).toBeNull();
+  });
+
+  it("does not take a sibling with the same prefix for the same project", () => {
+    expect(sameProject("/work/api", "/work/api-v2")).toBe(false);
+    expect(sameProject("/work/api/web", "/work/api")).toBe(true);
+  });
+
+  it("skips ledgers written before the project was recorded", () => {
+    mkdirSync(dirname(file), { recursive: true });
+    appendFileSync(
+      file,
+      JSON.stringify({ ts: 1, type: "verdict", phase: "stop", decision: "allow" }),
+    );
+    expect(latestSession(cwd)).toBeNull();
+  });
+});
+
+describe("hookErrors", () => {
+  it("counts crashes and cleans the last line for the terminal", () => {
+    expect(hookErrors()).toBeNull();
+    appendFileSync(
+      join(process.env.CANNY_HOME!, "errors.log"),
+      "t1 SyntaxError: a\nt2 Error: b\x1b[2K\n",
+    );
+    expect(hookErrors()).toEqual({ count: 2, last: "t2 Error: b [2K" });
   });
 });

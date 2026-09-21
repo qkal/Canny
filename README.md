@@ -133,7 +133,7 @@ At every Stop, in this order:
 4. Jev is available and at least 90 percent sure the message is _not_ a "done" claim (the agent is asking a question, or reporting being stuck): allow.
 5. Otherwise: block, with a reason that names the files, the last command and its exit code, and what counts as a check.
 
-Step 4 is the only place Jev touches the gate, and it can only make it more permissive. Files an agent writes from the shell count as edits too: `cat > file <<'EOF'`, `tee`, `sed -i`, `>` redirections, `cp`, `mv`, `rm`, `git rm`, `git checkout -- file`, and `git restore` are read out of every command, and Claude Code's own change list is used when it sends one.
+Step 4 is the only place Jev touches the gate, and it can only make it more permissive. Files an agent writes from the shell count as edits too: `cat > file <<'EOF'`, `tee`, `sed -i`, `>` redirections, `cp`, `mv`, `rm`, `git rm`, `git checkout -- file`, and `git restore` are read out of the command text, and Claude Code's own change list is used when it sends one. That reading covers the spellings agents use, not everything a shell accepts: `find -exec rm`, `xargs rm`, `git -C dir rm`, `mv -t dir`, here-strings, a second heredoc on one line, and files written by an interpreter (`python -c`, `node -e`) are not seen.
 
 ## Jev
 
@@ -202,13 +202,15 @@ This is a speed bump, not a sandbox. An agent with shell access can run `canny t
 canny init [--claude] [--codex] [--global]   write hook config for this project, or your home
 canny remove [--global]                      take Canny's entries out again, leave the rest
 canny trust                                  accept this project's .canny.json as it stands
-canny status [session-file]                  what the ledger knows about the latest session
-canny sessions                               list recorded sessions
+canny status [session-file]                  the latest session of the project you are in, and any hook crashes
+canny sessions                               list recorded sessions with their projects
 canny replay [session-file]                  re-derive every Stop verdict; exit 1 on a mismatch
 canny hook --agent claude|codex              what the hook config runs; reads one event on stdin
 ```
 
-Without a `canny` on your PATH, replace `canny` with `node ~/.canny/src/dist/cli.js`.
+The install above puts nothing on your PATH, so `canny` here stands for `node ~/.canny/src/dist/cli.js`. Canny's own messages print that full form when they name a command. For the short name, add `alias canny='node ~/.canny/src/dist/cli.js'` to your shell profile.
+
+`status` and `replay` pick the latest session recorded for the directory you run them in, its parents, or its subdirectories; `canny sessions` lists every project's. The hook fails open, so a crash in it would otherwise be silent: `status` prints the number of crashes logged in `~/.canny/errors.log` and the last one.
 
 ## Claude Code and Codex differ in four places
 

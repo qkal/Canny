@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fingerprint, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
 import { home } from "./config.js";
 export const sessionsDir = () => join(home(), "sessions");
@@ -99,6 +99,29 @@ export function summarize(entries) {
             s.factsSinceBlock++;
     }
     return s;
+}
+/** The directory the agent was working in, which says which project a session belongs to. */
+export const sessionCwd = (entries) => entries.flatMap((e) => (e.type !== "jev" && e.cwd ? [e.cwd] : []))[0];
+/** One directory is the other, or sits inside it: the agent may run in a subdirectory of where the user stands, or the reverse. */
+export const sameProject = (a, b) => a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
+/** The most recent session recorded for the project at `cwd`. */
+// ponytail: reads whole ledgers newest first until one matches; add an index file if ~/.canny/sessions grows into the thousands
+export function latestSession(cwd) {
+    for (const { file } of listSessions()) {
+        const entries = read(file);
+        const at = sessionCwd(entries);
+        if (at && sameProject(at, cwd))
+            return { file, entries };
+    }
+    return null;
+}
+/** The hook fails open, so its crashes are only visible here. */
+export function hookErrors() {
+    const file = join(home(), "errors.log");
+    if (!existsSync(file))
+        return null;
+    const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+    return lines.length ? { count: lines.length, last: plain(lines.at(-1)).slice(0, 200) } : null;
 }
 export function listSessions() {
     const dir = sessionsDir();
