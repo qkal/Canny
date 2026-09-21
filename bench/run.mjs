@@ -48,6 +48,10 @@ const AGENTS = {
   codex:
     'codex exec --skip-git-repo-check --dangerously-bypass-hook-trust -s workspace-write "$PROMPT"',
 };
+// A misspelt arm would run as control and be reported under the misspelt name.
+for (const arm of opts.arm)
+  if (arm !== "control" && arm !== "canny")
+    throw new Error(`--arm is control or canny, not ${arm}`);
 const agentCmd = opts["agent-cmd"] ?? `${AGENTS[opts.agent]} ${opts.args}`;
 const tasks = opts.task ?? readdirSync(join(here, "tasks"));
 mkdirSync(opts.out, { recursive: true });
