@@ -69,10 +69,12 @@ export function isVerify(command: string, config: Config): boolean {
     if (part.includes("||") || (!pipefail && part.includes("|"))) return false;
     // A lone `&` backgrounds the check; `2>&1` and `&>` are redirections.
     if (/(?<!>)&(?!>)/.test(part)) return false;
-    if (notACheck(part)) return false;
+    // Under pipefail the check is the command that feeds the pipe, so `^npm test$` names it.
+    const check = part.split("|")[0]!.trim();
+    if (notACheck(check)) return false;
     return config.verify
-      ? config.verify.some((p) => safeRegex(p)?.test(part))
-      : VERIFY.some((re) => re.test(part));
+      ? config.verify.some((p) => safeRegex(p)?.test(check))
+      : VERIFY.some((re) => re.test(check));
   });
 }
 

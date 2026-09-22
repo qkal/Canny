@@ -10,6 +10,7 @@ import {
   isVerify,
   projectCheck,
   testDamage,
+  withPipefail,
 } from "../src/checks.js";
 
 describe("findSecrets", () => {
@@ -230,6 +231,12 @@ describe("fingerprint", () => {
     fingerprint("pnpm test", "ok\n" + "9".repeat(200_000));
     expect(performance.now() - started).toBeLessThan(1000);
   });
+});
+
+it("reads a configured check against the command that feeds a pipefail pipe", () => {
+  const config = { verify: ["^npm test$"] };
+  expect(isVerify("set -o pipefail; npm test | tail -5", config)).toBe(true);
+  expect(withPipefail("npm test | tail -5", config)).toBe("set -o pipefail && npm test | tail -5");
 });
 
 describe("projectCheck", () => {
