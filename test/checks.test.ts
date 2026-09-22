@@ -246,6 +246,7 @@ describe("projectCheck", () => {
     [{ "package.json": "not json", Makefile: "test:\n\tpytest\n" }, "make test"],
     [{ "go.mod": "module x" }, "go test ./..."],
     [{ justfile: "test-unit:\n  vitest" }, null],
+    [{ justfile: "test target:\n  vitest {{target}}" }, null],
     [{ "README.md": "# x" }, null],
   ])("%j -> %s", (files, check) => {
     const dir = mkdtempSync(join(tmpdir(), "canny-check-"));

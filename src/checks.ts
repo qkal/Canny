@@ -115,8 +115,9 @@ export function projectCheck(cwd: string): string | null {
     if (runner !== "bun") return `${runner} test`;
   }
   const just = ["justfile", "Justfile", ".justfile"].map(text).join("\n");
-  // The name ends at its parameters or its colon: `test-unit:` is another recipe.
-  const recipe = /^(test|check)(?=[\s:])[^:\n=]*:(?!=)/m.exec(just)?.[1];
+  // Only a recipe that runs with no arguments: no parameters, or one `*args` that may be empty.
+  // `test-unit:` is another recipe, and `test target:` fails without its argument.
+  const recipe = /^(test|check)(?:\s+\*\w+)?\s*:(?!=)/m.exec(just)?.[1];
   if (recipe) return `just ${recipe}`;
   if (/^test\s*:/m.test(text("Makefile"))) return "make test";
   if (existsSync(join(cwd, "Cargo.toml"))) return "cargo test";
