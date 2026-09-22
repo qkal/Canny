@@ -7,7 +7,7 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fingerprint, inside, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
 import { errorLog, home, type Config } from "./config.js";
 import type { Agent, Event, Phase } from "./events.js";
@@ -52,9 +52,11 @@ export const sessionsDir = (): string => join(home(), "sessions");
 export const sessionFile = (agent: Agent, session: string): string =>
   join(sessionsDir(), `${agent}-${session.replace(/[^\w.-]/g, "_")}.jsonl`);
 
-/** Paths are kept relative to the session cwd so ledgers read the same on any machine. */
-export const rel = (cwd: string, p: string): string =>
-  plain(isAbsolute(p) ? relative(cwd, p) || p : p);
+/**
+ * Paths are kept relative to the session cwd so ledgers read the same on any machine, and in one
+ * spelling: `./src/a.ts` and `lib/../src/a.ts` are `src/a.ts`, so an `ignore` pattern matches all three.
+ */
+export const rel = (cwd: string, p: string): string => plain(relative(cwd, resolve(cwd, p)) || p);
 
 /**
  * The part of an event worth keeping: paths and outcomes, never file contents. Every string goes

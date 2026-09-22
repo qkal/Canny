@@ -451,26 +451,27 @@ describe("rule check", () => {
     expect(asked).toHaveLength(1);
   });
 
-  it.each<[Config, string, boolean]>([
-    [{ allow: ["rules"] }, "src/a.ts", false],
-    [{ ignore: ["^secret/"] }, "secret/a.ts", false],
-    [{ ignore: ["^secret/"] }, "src/a.ts", true],
-  ])("with %j, an edit to %s goes to Jev: %s", async (config, path, sent) => {
+  it.each<[Config, "Edit" | "Bash", string, boolean]>([
+    [{ allow: ["rules"] }, "Edit", "src/a.ts", false],
+    [{ ignore: ["^secret/"] }, "Edit", "secret/a.ts", false],
+    [{ ignore: ["^secret/"] }, "Bash", "./secret/a.ts", false],
+    [{ ignore: ["^secret/"] }, "Bash", "src/../secret/a.ts", false],
+    [{ ignore: ["^secret/"] }, "Edit", "src/a.ts", true],
+  ])("with %j, a %s to %s goes to Jev: %s", async (config, tool, path, sent) => {
     writeFileSync(join(cwd, "CLAUDE.md"), "- Never hardcode model IDs.\n");
     let asked = false;
     const judge: Judge = async () => {
       asked = true;
       return null;
     };
-    await run(
-      {
-        hook_event_name: "PostToolUse",
-        tool_name: "Edit",
-        tool_input: { file_path: join(cwd, path), old_string: "a", new_string: "b" },
-      },
-      judge,
-      config,
-    );
+    const call =
+      tool === "Edit"
+        ? { tool_input: { file_path: join(cwd, path), old_string: "a", new_string: "b" } }
+        : {
+            tool_input: { command: `echo x > ${path}` },
+            tool_response: { stdout: "", stderr: "" },
+          };
+    await run({ hook_event_name: "PostToolUse", tool_name: tool, ...call }, judge, config);
     expect(asked).toBe(sent);
   });
 
