@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Config } from "./config.js";
 import type { FileChange } from "./events.js";
 
@@ -66,6 +66,54 @@ export function isVerify(command: string, config: Config): boolean {
       ? config.verify.some((p) => safeRegex(p)?.test(part))
       : VERIFY.some((re) => re.test(part));
   });
+}
+
+/**
+ * `<check> | tail -20` behind `set -o pipefail`, so the check's own exit status is the command's.
+ * Null when the command already counts, or when pipefail would not make it count. Only `tail`
+ * qualifies: it reads to the end, while `head` or `grep -q` quit early and kill the check with
+ * SIGPIPE. `&&` rather than `;`, so a shell without pipefail runs nothing instead of a masked check.
+ */
+export function withPipefail(command: string, config: Config): string | null {
+  if (isVerify(command, config)) return null;
+  const next = `set -o pipefail && ${command}`;
+  if (!isVerify(next, config)) return null;
+  const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
+  return /(?<!\|)\|(?!\|)(?!\s*tail\b)/.test(bare) ? null : next;
+}
+
+/** The command that runs this project's tests, named to the agent up front. A hint, never a check. */
+export function projectCheck(cwd: string): string | null {
+  const text = (name: string): string => {
+    try {
+      return readFileSync(join(cwd, name), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  let pkg: { scripts?: { test?: unknown }; packageManager?: unknown } = {};
+  try {
+    pkg = JSON.parse(text("package.json") || "{}") as typeof pkg;
+  } catch {
+    // Not JSON: no scripts to name.
+  }
+  const test = pkg?.scripts?.test;
+  if (typeof test === "string" && !test.includes("no test specified")) {
+    const lock = ["pnpm-lock.yaml", "yarn.lock"].find((f) => existsSync(join(cwd, f)));
+    const runner =
+      typeof pkg.packageManager === "string"
+        ? pkg.packageManager.split("@")[0]
+        : (lock?.split(/[-.]/)[0] ?? "npm");
+    // `bun test` runs Bun's own test runner, not the script.
+    if (runner !== "bun") return `${runner} test`;
+  }
+  const just = ["justfile", "Justfile", ".justfile"].map(text).join("\n");
+  const recipe = /^(test|check)\b[^:\n=]*:(?!=)/m.exec(just)?.[1];
+  if (recipe) return `just ${recipe}`;
+  if (/^test\s*:/m.test(text("Makefile"))) return "make test";
+  if (existsSync(join(cwd, "Cargo.toml"))) return "cargo test";
+  if (existsSync(join(cwd, "go.mod"))) return "go test ./...";
+  return null;
 }
 
 const IGNORE =

@@ -30,11 +30,13 @@ export function hookConfig(agent, command) {
     const tools = TOOLS[agent].join("|");
     if (agent === "codex")
         return {
+            SessionStart: [handler(10)],
             PreToolUse: [handler(10, tools)],
             PostToolUse: [handler(15, tools)],
             Stop: [handler(15)],
         };
     return {
+        SessionStart: [handler(10)],
         PreToolUse: [handler(10, tools)],
         PostToolUse: [handler(15, tools)],
         PostToolUseFailure: [handler(15, SHELL_TOOLS.join("|"))],

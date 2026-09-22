@@ -39,7 +39,7 @@ export function normalize(raw, agent) {
         };
         return ctx;
     }
-    if (phase === "other")
+    if (phase === "start" || phase === "other")
         return ctx;
     const ti = typeof input.tool_input === "string" ? { command: input.tool_input } : obj(input.tool_input);
     switch (tool) {
@@ -88,6 +88,8 @@ export function normalize(raw, agent) {
 const edit = (c) => ({ kind: "edit", changes: c.path ? [c] : [] });
 function phaseOf(name) {
     switch (name) {
+        case "SessionStart":
+            return "start";
         case "PreToolUse":
             return "pre";
         case "PostToolUse":

@@ -1,7 +1,7 @@
 import { isAbsolute, resolve } from "node:path";
-import { findSecrets, isPrivateEnv, isTestFile, plain, testDamage, userIgnored, } from "./checks.js";
+import { findSecrets, isPrivateEnv, isTestFile, isVerify, plain, projectCheck, testDamage, userIgnored, withPipefail, } from "./checks.js";
 import { off } from "./config.js";
-import { fileOps, shellEdits, shellWrites } from "./events.js";
+import { fileOps, isObj, shellEdits, shellWrites } from "./events.js";
 import { NO, YES, noul } from "./jev.js";
 import { append, read, rel, summarize, toFact } from "./ledger.js";
 import { loadRules } from "./rules.js";
@@ -22,9 +22,20 @@ export async function handle(ctx, deps) {
             return post(ctx, deps);
         case "stop":
             return stop(ctx, deps);
+        case "start":
+            return brief(ctx, deps);
         default:
             return { kind: "allow" };
     }
+}
+/** What the done-gate asks for, told when the session starts rather than at the first Stop. Nothing is recorded: nothing has happened yet. */
+function brief(ctx, deps) {
+    const check = projectCheck(ctx.cwd);
+    const named = check && isVerify(check, deps.config) ? ` This project's check is \`${check}\`.` : "";
+    return {
+        kind: "note",
+        message: `Canny guards this session. Before you finish, a check has to pass after your last code edit.${counts(deps.config)}${named} Keys go in a git-ignored env file, and tests are removed or skipped only when the user asks.`,
+    };
 }
 /** Pattern checks that can block, before the tool runs. Nothing is recorded here: the edit has not happened yet. */
 function pre(ctx, deps) {
@@ -74,8 +85,11 @@ function pre(ctx, deps) {
                 return record(ctx, deps, { kind: "ask", message: describe(ctx, c, damage, "command") });
         }
     }
+    // Agents trim test output with `| tail`, which hides the exit status and would cost a blocked Stop.
+    const piped = ctx.tool === "Bash" ? withPipefail(event.command, deps.config) : null;
     if (!off(deps.config, "repeat-failure")) {
-        const command = plain(event.command);
+        // The ledger holds the command as it ran, so a rewritten one is looked up as rewritten.
+        const command = plain(piped ?? event.command);
         const hit = Object.values(summarize(read(deps.file)).repeats).find((r) => r.command === command && r.n >= REPEAT_DENY_AFTER);
         if (hit)
             return record(ctx, deps, {
@@ -83,6 +97,12 @@ function pre(ctx, deps) {
                 message: `Canny: this exact command has failed ${hit.n} times with the same output. Running it again will not change the result. Change the code or the approach first.`,
             });
     }
+    if (piped)
+        return record(ctx, deps, {
+            kind: "rewrite",
+            command: piped,
+            message: "Canny ran this with `set -o pipefail`, so the check's own exit status is the result and it counts as a check.",
+        });
     return { kind: "allow" };
 }
 /**
@@ -196,14 +216,14 @@ function blockReason(s, config) {
     const last = s.lastCommand
         ? ` The last command was \`${short(s.lastCommand.command)}\`${s.lastCommand.exitCode === null ? "" : ` (exit ${s.lastCommand.exitCode})`}.`
         : "";
-    const counts = config.verify?.length
-        ? ` Commands that count: ${config.verify.map((v) => `\`${v}\``).join(", ")}.`
-        : " A test, build, lint, or type-check command counts, run so its own exit status is the result: a pipe into `tail`, `|| true`, or a trailing `; echo` hides it.";
     const tail = config.strict
         ? ""
         : " If no check applies to this change, say so explicitly and stop again.";
-    return `Canny: ${list(s.codeFiles)} changed, but no check has passed since the last edit.${last} Run the project's checks and fix what fails before finishing.${counts}${tail}`;
+    return `Canny: ${list(s.codeFiles)} changed, but no check has passed since the last edit.${last} Run the project's checks and fix what fails before finishing.${counts(config)}${tail}`;
 }
+const counts = (config) => config.verify?.length
+    ? ` Commands that count: ${config.verify.map((v) => `\`${v}\``).join(", ")}.`
+    : " A test, build, lint, or type-check command counts, run so its own exit status is the result: a pipe into `tail`, `|| true`, or a trailing `; echo` hides it.";
 function describe(ctx, c, d, by = "edit") {
     const file = rel(ctx.cwd, c.path);
     const what = d.deleted
@@ -228,8 +248,11 @@ function secretMessage(ctx, paths, hits) {
         : "Read the value from the environment or a git-ignored env file instead of writing it into the file.";
     return `Canny: ${files} would contain what looks like a ${hits.join(" and a ")}. ${advice}`;
 }
-/** Hook JSON for the agent that sent the event. Codex has no "ask", so it gets a deny with the same reason. */
-export function serialize(ctx, d) {
+/**
+ * Hook JSON for the agent that sent the event. Codex has no "ask", so it gets a deny with the same
+ * reason. `input` is the raw payload: a rewrite hands back the whole tool input, not only the command.
+ */
+export function serialize(ctx, d, input) {
     switch (d.kind) {
         case "deny":
         case "ask":
@@ -243,6 +266,17 @@ export function serialize(ctx, d) {
             };
         case "block":
             return { decision: "block", reason: d.message, systemMessage: d.message };
+        case "rewrite":
+            return {
+                hookSpecificOutput: {
+                    hookEventName: "PreToolUse",
+                    // Claude Code applies `updatedInput` on its own, and an "allow" would skip the user's
+                    // permission prompt. Codex takes it only with "allow" and asks for approval separately.
+                    ...(ctx.agent === "codex" && { permissionDecision: "allow" }),
+                    updatedInput: { ...toolInput(input), command: d.command },
+                    additionalContext: d.message,
+                },
+            };
         case "note":
             return { hookSpecificOutput: { hookEventName: ctx.hookEvent, additionalContext: d.message } };
         case "warn":
@@ -251,6 +285,11 @@ export function serialize(ctx, d) {
             return {};
     }
 }
+/** The tool input as sent. Codex may send a Bash command as a bare string. */
+const toolInput = (input) => {
+    const ti = isObj(input) ? input.tool_input : undefined;
+    return isObj(ti) ? ti : {};
+};
 const entry = (ctx, fact) => ({
     ts: Date.now(),
     type: "event",

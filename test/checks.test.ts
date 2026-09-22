@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import {
   isIgnored,
   isScratch,
   isVerify,
+  projectCheck,
   testDamage,
 } from "../src/checks.js";
 
@@ -225,5 +226,27 @@ describe("fingerprint", () => {
     const started = performance.now();
     fingerprint("pnpm test", "ok\n" + "9".repeat(200_000));
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe("projectCheck", () => {
+  const npmDefault = '{"scripts":{"test":"echo \\"Error: no test specified\\" && exit 1"}}';
+  it.each([
+    [{ "package.json": '{"scripts":{"test":"vitest"}}' }, "npm test"],
+    [{ "package.json": '{"scripts":{"test":"vitest"}}', "pnpm-lock.yaml": "" }, "pnpm test"],
+    [{ "package.json": '{"packageManager":"yarn@4.1.0","scripts":{"test":"jest"}}' }, "yarn test"],
+    [{ "package.json": '{"packageManager":"bun@1.2.0","scripts":{"test":"vitest"}}' }, null],
+    [
+      { "package.json": npmDefault, justfile: "build:\n  tsc\ncheck *args:\n  pnpm test" },
+      "just check",
+    ],
+    [{ "package.json": "not json", Makefile: "test:\n\tpytest\n" }, "make test"],
+    [{ "go.mod": "module x" }, "go test ./..."],
+    [{ "README.md": "# x" }, null],
+  ])("%j -> %s", (files, check) => {
+    const dir = mkdtempSync(join(tmpdir(), "canny-check-"));
+    mkdirSync(dir, { recursive: true });
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+    expect(projectCheck(dir)).toBe(check);
   });
 });

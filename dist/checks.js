@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 const VERIFY = [
     /\b(pytest|vitest|jest|mocha|ava|cypress|playwright test|go test|cargo test|swift test|xcodebuild test|gradlew? test|mvn test|dotnet test|rspec|phpunit|mix test|bun test|deno test|node --test|node --run test|npm test|pnpm test|yarn test|make test|just test|python -m pytest|python -m unittest|npm run test|pnpm run test|yarn run test|tox|nox)\b/,
     /\b(tsc|cargo build|go build|go vet|swift build|xcodebuild|gradlew? (build|assemble)|mvn (package|compile|verify)|dotnet build|npm run build|pnpm build|pnpm run build|yarn build|make build|just build|bun run build|vite build|next build|esbuild|webpack)\b/,
@@ -58,6 +58,60 @@ export function isVerify(command, config) {
             ? config.verify.some((p) => safeRegex(p)?.test(part))
             : VERIFY.some((re) => re.test(part));
     });
+}
+/**
+ * `<check> | tail -20` behind `set -o pipefail`, so the check's own exit status is the command's.
+ * Null when the command already counts, or when pipefail would not make it count. Only `tail`
+ * qualifies: it reads to the end, while `head` or `grep -q` quit early and kill the check with
+ * SIGPIPE. `&&` rather than `;`, so a shell without pipefail runs nothing instead of a masked check.
+ */
+export function withPipefail(command, config) {
+    if (isVerify(command, config))
+        return null;
+    const next = `set -o pipefail && ${command}`;
+    if (!isVerify(next, config))
+        return null;
+    const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
+    return /(?<!\|)\|(?!\|)(?!\s*tail\b)/.test(bare) ? null : next;
+}
+/** The command that runs this project's tests, named to the agent up front. A hint, never a check. */
+export function projectCheck(cwd) {
+    const text = (name) => {
+        try {
+            return readFileSync(join(cwd, name), "utf8");
+        }
+        catch {
+            return "";
+        }
+    };
+    let pkg = {};
+    try {
+        pkg = JSON.parse(text("package.json") || "{}");
+    }
+    catch {
+        // Not JSON: no scripts to name.
+    }
+    const test = pkg?.scripts?.test;
+    if (typeof test === "string" && !test.includes("no test specified")) {
+        const lock = ["pnpm-lock.yaml", "yarn.lock"].find((f) => existsSync(join(cwd, f)));
+        const runner = typeof pkg.packageManager === "string"
+            ? pkg.packageManager.split("@")[0]
+            : (lock?.split(/[-.]/)[0] ?? "npm");
+        // `bun test` runs Bun's own test runner, not the script.
+        if (runner !== "bun")
+            return `${runner} test`;
+    }
+    const just = ["justfile", "Justfile", ".justfile"].map(text).join("\n");
+    const recipe = /^(test|check)\b[^:\n=]*:(?!=)/m.exec(just)?.[1];
+    if (recipe)
+        return `just ${recipe}`;
+    if (/^test\s*:/m.test(text("Makefile")))
+        return "make test";
+    if (existsSync(join(cwd, "Cargo.toml")))
+        return "cargo test";
+    if (existsSync(join(cwd, "go.mod")))
+        return "go test ./...";
+    return null;
 }
 const IGNORE = /(^|\/)docs?\/|(^|\/)(node_modules|\.venv|__pycache__|coverage|\.cache|\.git)(\/|$)|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
 /** One directory is the other, or sits inside it. `relative` gets the filesystem root and Windows drives right, which string prefixes do not. */

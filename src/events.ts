@@ -2,7 +2,7 @@ import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { basename, join } from "node:path";
 
 export type Agent = "claude" | "codex";
-export type Phase = "pre" | "post" | "stop" | "other";
+export type Phase = "start" | "pre" | "post" | "stop" | "other";
 
 export interface FileChange {
   path: string;
@@ -83,7 +83,7 @@ export function normalize(raw: unknown, agent?: Agent): Ctx {
     };
     return ctx;
   }
-  if (phase === "other") return ctx;
+  if (phase === "start" || phase === "other") return ctx;
   const ti =
     typeof input.tool_input === "string" ? { command: input.tool_input } : obj(input.tool_input);
   switch (tool) {
@@ -134,6 +134,8 @@ const edit = (c: FileChange): Event => ({ kind: "edit", changes: c.path ? [c] : 
 
 function phaseOf(name: string): Phase {
   switch (name) {
+    case "SessionStart":
+      return "start";
     case "PreToolUse":
       return "pre";
     case "PostToolUse":
