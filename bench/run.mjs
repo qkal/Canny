@@ -88,11 +88,12 @@ function once(task, arm) {
   if (arm === "canny")
     execFileSync("node", [cli, "init", `--${opts.agent === "codex" ? "codex" : "claude"}`], { cwd: project, env, stdio: "ignore" }); // prettier-ignore
   const started = Date.now();
-  // The path goes in as `$1`, not as text, so a checkout under a directory with a space still works.
-  const agent = spawnSync("sh", ["-c", agentCmd.replaceAll("{task}", '"$1"'), "agent", src], {
+  // The task's path reaches the shell through the environment, never as command text, so no
+  // directory name is parsed as shell. Only a stand-in agent gets it: a real one must not find
+  // the reference fix. A stand-in cannot read the prompt either, so it gets the key directly.
+  const agent = spawnSync("sh", ["-c", agentCmd.replaceAll("{task}", '"$BENCH_TASK"')], {
     cwd: project,
-    // A stand-in agent cannot read the prompt, so it gets the key directly.
-    env: { ...env, PROMPT: prompt, ...(opts["agent-cmd"] && { BENCH_SECRET: secret }) },
+    env: { ...env, PROMPT: prompt, ...(opts["agent-cmd"] && { BENCH_SECRET: secret, BENCH_TASK: src }) }, // prettier-ignore
     timeout: Number(opts["timeout-min"]) * 60_000,
     stdio: ["ignore", "ignore", "inherit"],
   });
