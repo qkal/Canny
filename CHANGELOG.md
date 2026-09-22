@@ -16,6 +16,7 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 - `test/fixtures/` holds the hook payloads of a real Claude Code session and a real Codex session, scrubbed of paths and ids, with a snapshot of how Canny reads them. `test/fixtures/scrub.mjs` turns a new capture into a fixture when an agent release changes what it sends.
 - The verify gate is tested as a product: every check in every form that hides its exit status, and in every wrapper that does not. The secret check is tested the same way, every shape through every route into a file, for both agents.
 - New tests: a sweep of malformed hook payloads that must all come out as a decision, a guard against regexes that stall on hostile text, a whole session through the real `canny hook` process with `replay` catching an edited ledger, hostile session ids, half-written ledger lines, config trust by path, and hook matchers for every tool Canny reads.
+- Canny calls itself a supervision layer instead of a warden, in the README, `canny` help, and the npm description. The npm package is still `canny-warden`.
 
 ### Fixed
 
