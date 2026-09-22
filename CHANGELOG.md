@@ -6,6 +6,8 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Added
 
+- The Jev rule check can be turned off with `"allow": ["rules"]`, and it skips the paths listed in `ignore`, so a project can keep some or all of its code from being sent to TypeSafe without unsetting the key. Both fields wait for `canny trust`, like the other fields that loosen the guard.
+
 - `bench/run.mjs` measures Canny instead of asserting it: each task in `bench/tasks` goes to a headless Claude Code or Codex in a scratch directory, once with project-level Canny hooks and once without, and the run passes only when the task's original tests pass afterwards. Rows land in `bench/results/`, which git ignores.
 
 ### Changed
@@ -20,6 +22,7 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- An `ignore` pattern matches a path however a shell command spells it: `./generated/x.ts` and `src/../generated/x.ts` both match `^generated/`, for the done-gate and for what the rule check leaves out. Relative paths used to be matched as written.
 - A shell command that rewrites a test file goes through the test-removal check: a heredoc or `echo` redirect that leaves fewer test cases, an append that adds `.only` or `.skip`, and a `sed -i` or `perl -pi` script whose `s` command or delete pattern takes test cases out or puts skip markers in. The script is read, not run, so a delete by line number is not seen. Text a shell command writes is also checked against the project rules after it runs, like any other edit.
 - A shell command that starts with a `cd` to where it already is (`cd "$PWD"; …`, `cd <project> && …`) can write a key into a git-ignored `.env` again. Any `cd` used to cancel the env-file exemption, and agents open many commands that way, so the write Canny's own message recommends was denied. A `cd` that opens the command and provably goes nowhere (`.`, `$PWD`, or the project's own absolute path) no longer counts as leaving; every other `cd` still leaves no env file exempt. Found by the first `bench/` runs.
 - A `;` inside quotes no longer splits a shell statement, so `echo "const k = '<key>';" > src/k.ts` is denied. Before, the secret check lost the redirect as soon as the written code ended in a semicolon.

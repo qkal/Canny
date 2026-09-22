@@ -12,7 +12,7 @@ export interface Config {
   /** Project rules for the Jev rule check. Replaces the CLAUDE.md and AGENTS.md extraction. */
   // Replacing the extraction can silence rules, so this field waits for `canny trust` too.
   rules?: string[];
-  /** Checks to turn off: "secrets", "test-removal", "repeat-failure". */
+  /** Checks to turn off: "secrets", "test-removal", "repeat-failure", "rules". */
   allow?: string[];
   /** Keep blocking Stop until a check passes, instead of letting the second stop through with a warning. */
   strict?: boolean;
