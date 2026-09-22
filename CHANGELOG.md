@@ -25,6 +25,7 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- A negated check (`! npm test`) and a check named only in a comment (`true # npm test`) no longer count as a passing check: the first exits 0 when the tests fail, and the second runs none.
 - An `ignore` pattern matches a path however a shell command spells it: `./generated/x.ts` and `src/../generated/x.ts` both match `^generated/`, for the done-gate and for what the rule check leaves out. Relative paths used to be matched as written.
 - A shell command that rewrites a test file goes through the test-removal check: a heredoc or `echo` redirect that leaves fewer test cases, an append that adds `.only` or `.skip`, and a `sed -i` or `perl -pi` script whose `s` command or delete pattern takes test cases out or puts skip markers in. The script is read, not run, so a delete by line number is not seen. Text a shell command writes is also checked against the project rules after it runs, like any other edit.
 - A shell command that starts with a `cd` to where it already is (`cd "$PWD"; …`, `cd <project> && …`) can write a key into a git-ignored `.env` again. Any `cd` used to cancel the env-file exemption, and agents open many commands that way, so the write Canny's own message recommends was denied. A `cd` that opens the command and provably goes nowhere (`.`, `$PWD`, or the project's own absolute path) no longer counts as leaving; every other `cd` still leaves no env file exempt. Found by the first `bench/` runs.

@@ -541,6 +541,8 @@ describe("pipefail rewrite", () => {
     ["cd web && pnpm vitest run | tail -n 40", "set -o pipefail && cd web && pnpm vitest run | tail -n 40"], // prettier-ignore
     // `head` and `grep -q` quit early, and SIGPIPE would fail a passing check.
     ["npm test | head -5", null],
+    ["! npm test | tail -20", null],
+    ["true # npm test | tail -20", null],
     ["npm test | grep -q ok", null],
     ["npm test | tail -3; echo done", null],
     ["npm test |& tail", null],

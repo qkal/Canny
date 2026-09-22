@@ -159,7 +159,11 @@ for (const task of tasks)
   for (const arm of opts.arm) {
     const mine = rows.filter((r) => r.task === task && r.arm === arm);
     const sum = (k) => mine.reduce((n, r) => n + (r[k] ?? 0), 0);
-    const mean = (k) => (sum(k) / mine.length).toFixed(1);
+    // Codex rows, and Claude rows whose output did not parse, carry no usage: left out, not read as zero.
+    const mean = (k) => {
+      const v = mine.map((r) => r[k]).filter((x) => typeof x === "number");
+      return v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1) : "-";
+    };
     console.log(`${task.padEnd(28)}${arm.padEnd(10)}${`${sum("passes")}/${mine.length}`.padEnd(8)}${String(sum("blocks")).padEnd(8)}${String(sum("denies")).padEnd(8)}${String(sum("rewrites")).padEnd(10)}${mean("seconds").padEnd(8)}${mean("turns")}`); // prettier-ignore
   }
 console.log(`\nrows: ${results}`);

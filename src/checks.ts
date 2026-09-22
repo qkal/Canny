@@ -38,7 +38,15 @@ const PRINTS_OR_INSPECTS =
 /** `--version` and `--help` anywhere in the statement: the command ran, but it checked nothing. */
 const ASKS_ONLY = /\s--(?:version|help)\b/;
 
-const notACheck = (part: string): boolean => PRINTS_OR_INSPECTS.test(part) || ASKS_ONLY.test(part);
+/** `! npm test` exits 0 when the tests fail. */
+const NEGATED = /^\s*!/;
+
+const notACheck = (part: string): boolean =>
+  PRINTS_OR_INSPECTS.test(part) || ASKS_ONLY.test(part) || NEGATED.test(part);
+
+/** The shell text that runs: quoted strings and `#` comments are dropped, so neither a commit message nor `true # npm test` names a check. */
+const executed = (command: string): string =>
+  command.replace(/"[^"]*"|'[^']*'/g, "").replace(/(^|\s)#[^\n]*/g, "$1");
 
 /**
  * Whether a shell command is a test, build, lint, or type check whose exit status reaches the
@@ -47,7 +55,7 @@ const notACheck = (part: string): boolean => PRINTS_OR_INSPECTS.test(part) || AS
  * other command's status, so it does not count.
  */
 export function isVerify(command: string, config: Config): boolean {
-  const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
+  const bare = executed(command);
   // Only a `set -o pipefail` statement turns the option on; the word in an echo or a comment does not.
   const pipefail =
     /(?:^|[;&\n])\s*set\s+-\w*o\s+pipefail\b/.test(bare) && !/\bset\s+\+o\s+pipefail\b/.test(bare);
@@ -78,8 +86,7 @@ export function withPipefail(command: string, config: Config): string | null {
   if (isVerify(command, config)) return null;
   const next = `set -o pipefail && ${command}`;
   if (!isVerify(next, config)) return null;
-  const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
-  return /(?<!\|)\|(?!\|)(?!\s*tail\b)/.test(bare) ? null : next;
+  return /(?<!\|)\|(?!\|)(?!\s*tail\b)/.test(executed(command)) ? null : next;
 }
 
 /** The command that runs this project's tests, named to the agent up front. A hint, never a check. */
@@ -108,7 +115,8 @@ export function projectCheck(cwd: string): string | null {
     if (runner !== "bun") return `${runner} test`;
   }
   const just = ["justfile", "Justfile", ".justfile"].map(text).join("\n");
-  const recipe = /^(test|check)\b[^:\n=]*:(?!=)/m.exec(just)?.[1];
+  // The name ends at its parameters or its colon: `test-unit:` is another recipe.
+  const recipe = /^(test|check)(?=[\s:])[^:\n=]*:(?!=)/m.exec(just)?.[1];
   if (recipe) return `just ${recipe}`;
   if (/^test\s*:/m.test(text("Makefile"))) return "make test";
   if (existsSync(join(cwd, "Cargo.toml"))) return "cargo test";

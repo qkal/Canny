@@ -67,6 +67,9 @@ describe("isVerify", () => {
     ["ruff format .", false],
     ['git commit -m "add pytest suite"', false],
     ["ls -la", false],
+    ["! npm test", false],
+    ["true # npm test", false],
+    ["npm test # every suite", true],
   ])("%s -> %s", (cmd, yes) => expect(isVerify(cmd, {})).toBe(yes));
 
   // Every gate bypass so far was a combination nobody had written down, so the table is a product:
@@ -242,6 +245,7 @@ describe("projectCheck", () => {
     ],
     [{ "package.json": "not json", Makefile: "test:\n\tpytest\n" }, "make test"],
     [{ "go.mod": "module x" }, "go test ./..."],
+    [{ justfile: "test-unit:\n  vitest" }, null],
     [{ "README.md": "# x" }, null],
   ])("%j -> %s", (files, check) => {
     const dir = mkdtempSync(join(tmpdir(), "canny-check-"));
