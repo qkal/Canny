@@ -10,6 +10,8 @@ A supervision layer for AI coding agents. It hooks into Claude Code and Codex CL
 [![judge](https://img.shields.io/badge/judge-Jev%20by%20TypeSafe%2C%20optional-0ea5e9)](https://typesafe.ai)
 [![last commit](https://img.shields.io/github/last-commit/qkal/canny)](https://github.com/qkal/canny/commits/main)
 
+**[Install](#install-by-pasting-a-prompt)** · [What it looks like](#what-a-guarded-session-looks-like) · [What blocks](#what-blocks-and-what-only-nags) · [Configuration](#configuration) · [Commands](#commands) · [Does it help?](#does-it-help) · [Contributing](#contributing)
+
 > Done. Skipped tests — one-liner, no branch to break.
 
 That is Claude Code, verbatim, during this project's first live run. It had been asked to add a function, it wrote the file with a shell heredoc, ran nothing, and finished. No error. No warning. Nothing in `CLAUDE.md` could have stopped it, because a rules file only asks the model to remember, and nothing checks that it did.
