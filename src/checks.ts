@@ -46,7 +46,8 @@ const notACheck = (part: string): boolean =>
 
 /** The shell text that runs: quoted strings and `#` comments are dropped, so neither a commit message nor `true # npm test` names a check. */
 const executed = (command: string): string =>
-  command.replace(/"[^"]*"|'[^']*'/g, "").replace(/(^|\s)#[^\n]*/g, "$1");
+  // A `#` after an escaped space is part of a word, not a comment: `--grep=\ #foo | tail` pipes.
+  command.replace(/"[^"]*"|'[^']*'/g, "").replace(/(^|(?<!\\)\s)#[^\n]*/g, "$1");
 
 /**
  * Whether a shell command is a test, build, lint, or type check whose exit status reaches the

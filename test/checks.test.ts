@@ -72,6 +72,7 @@ describe("isVerify", () => {
     ["! npm test", false],
     ["true # npm test", false],
     ["npm test # every suite", true],
+    ["npm test -- --grep=\\ #foo | tail", false],
   ])("%s -> %s", (cmd, yes) => expect(isVerify(cmd, {})).toBe(yes));
 
   // Every gate bypass so far was a combination nobody had written down, so the table is a product:

@@ -34,7 +34,9 @@ const ASKS_ONLY = /\s--(?:version|help)\b/;
 const NEGATED = /^\s*!/;
 const notACheck = (part) => PRINTS_OR_INSPECTS.test(part) || ASKS_ONLY.test(part) || NEGATED.test(part);
 /** The shell text that runs: quoted strings and `#` comments are dropped, so neither a commit message nor `true # npm test` names a check. */
-const executed = (command) => command.replace(/"[^"]*"|'[^']*'/g, "").replace(/(^|\s)#[^\n]*/g, "$1");
+const executed = (command) => 
+// A `#` after an escaped space is part of a word, not a comment: `--grep=\ #foo | tail` pipes.
+command.replace(/"[^"]*"|'[^']*'/g, "").replace(/(^|(?<!\\)\s)#[^\n]*/g, "$1");
 /**
  * Whether a shell command is a test, build, lint, or type check whose exit status reaches the
  * agent. Quoted strings are dropped so a commit message cannot match. A check piped into another
