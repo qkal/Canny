@@ -56,9 +56,9 @@ const executed = (command: string): string =>
  */
 export function isVerify(command: string, config: Config): boolean {
   const bare = executed(command);
-  // Only a `set -o pipefail` statement turns the option on; the word in an echo or a comment does not.
+  // Only a `set` statement changes the option, the word in an echo or a comment does not, and the last one wins.
   const pipefail =
-    /(?:^|[;&\n])\s*set\s+-\w*o\s+pipefail\b/.test(bare) && !/\bset\s+\+o\s+pipefail\b/.test(bare);
+    [...bare.matchAll(/(?:^|[;&\n])\s*set\s+([+-])\w*o\s+pipefail\b/g)].at(-1)?.[1] === "-";
   const last =
     bare
       .split(/[;\n]/)

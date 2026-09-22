@@ -53,6 +53,7 @@ describe("isVerify", () => {
     ["echo pipefail; pnpm test 2>&1 | tail -20", false],
     ["pnpm test | tail -20 # set -o pipefail", false],
     ["set -o pipefail; set +o pipefail; pnpm test | tail", false],
+    ["set +o pipefail; set -o pipefail; pnpm test | tail", true],
     ["pnpm test & echo done", false],
     ["pnpm test > out.log 2>&1", true],
     ["pnpm test || true", false],

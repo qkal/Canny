@@ -43,8 +43,8 @@ const executed = (command) => command.replace(/"[^"]*"|'[^']*'/g, "").replace(/(
  */
 export function isVerify(command, config) {
     const bare = executed(command);
-    // Only a `set -o pipefail` statement turns the option on; the word in an echo or a comment does not.
-    const pipefail = /(?:^|[;&\n])\s*set\s+-\w*o\s+pipefail\b/.test(bare) && !/\bset\s+\+o\s+pipefail\b/.test(bare);
+    // Only a `set` statement changes the option, the word in an echo or a comment does not, and the last one wins.
+    const pipefail = [...bare.matchAll(/(?:^|[;&\n])\s*set\s+([+-])\w*o\s+pipefail\b/g)].at(-1)?.[1] === "-";
     const last = bare
         .split(/[;\n]/)
         .map((s) => s.trim())
