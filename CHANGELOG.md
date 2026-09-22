@@ -6,6 +6,9 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Added
 
+- A `SessionStart` hook tells the agent what the done-gate asks for before it starts, and names the project's test command when `package.json`, a `justfile`, a `Makefile`, `Cargo.toml`, or `go.mod` gives one. Before, the agent learned the rule from its first blocked Stop and paid an extra turn for it. Run `canny init` again to add the hook to an existing project.
+- A Bash check piped into `tail` (`npm test 2>&1 | tail -20`) is rewritten to run behind `set -o pipefail`, so the check's own exit status is the command's: it counts as a check when it passes and reports its failure when it fails. This was the block nearly every benchmarked session paid. On Claude Code the rewritten command still goes through the user's permission rules; on Codex, which takes a rewrite only with an "allow", approval stays a separate step.
+- `bench/run.mjs` records the turns, cost, and model time of each Claude Code run, and how often Canny rewrote a command. With the two changes above, a 25-pair Opus 5 run had no blocked Stops, where every earlier Canny run had one, and the Canny arm finished 1.6 ± 3.4 seconds faster than the arm without it, down from 4.5 seconds slower.
 - The Jev rule check can be turned off with `"allow": ["rules"]`, and it skips the paths listed in `ignore`, so a project can keep some or all of its code from being sent to TypeSafe without unsetting the key. Both fields wait for `canny trust`, like the other fields that loosen the guard.
 
 - `bench/run.mjs` measures Canny instead of asserting it: each task in `bench/tasks` goes to a headless Claude Code or Codex in a scratch directory, once with project-level Canny hooks and once without, and the run passes only when the task's original tests pass afterwards. Rows land in `bench/results/`, which git ignores.
@@ -22,6 +25,7 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- A negated check (`! npm test`) and a check named only in a comment (`true # npm test`) no longer count as a passing check: the first exits 0 when the tests fail, and the second runs none.
 - An `ignore` pattern matches a path however a shell command spells it: `./generated/x.ts` and `src/../generated/x.ts` both match `^generated/`, for the done-gate and for what the rule check leaves out. Relative paths used to be matched as written.
 - A shell command that rewrites a test file goes through the test-removal check: a heredoc or `echo` redirect that leaves fewer test cases, an append that adds `.only` or `.skip`, and a `sed -i` or `perl -pi` script whose `s` command or delete pattern takes test cases out or puts skip markers in. The script is read, not run, so a delete by line number is not seen. Text a shell command writes is also checked against the project rules after it runs, like any other edit.
 - A shell command that starts with a `cd` to where it already is (`cd "$PWD"; …`, `cd <project> && …`) can write a key into a git-ignored `.env` again. Any `cd` used to cancel the env-file exemption, and agents open many commands that way, so the write Canny's own message recommends was denied. A `cd` that opens the command and provably goes nowhere (`.`, `$PWD`, or the project's own absolute path) no longer counts as leaving; every other `cd` still leaves no env file exempt. Found by the first `bench/` runs.

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Config } from "./config.js";
 import type { FileChange } from "./events.js";
 
@@ -38,7 +38,16 @@ const PRINTS_OR_INSPECTS =
 /** `--version` and `--help` anywhere in the statement: the command ran, but it checked nothing. */
 const ASKS_ONLY = /\s--(?:version|help)\b/;
 
-const notACheck = (part: string): boolean => PRINTS_OR_INSPECTS.test(part) || ASKS_ONLY.test(part);
+/** `! npm test` exits 0 when the tests fail. */
+const NEGATED = /^\s*!/;
+
+const notACheck = (part: string): boolean =>
+  PRINTS_OR_INSPECTS.test(part) || ASKS_ONLY.test(part) || NEGATED.test(part);
+
+/** The shell text that runs: quoted strings and `#` comments are dropped, so neither a commit message nor `true # npm test` names a check. */
+const executed = (command: string): string =>
+  // A `#` after an escaped space is part of a word, not a comment: `--grep=\ #foo | tail` pipes.
+  command.replace(/"[^"]*"|'[^']*'/g, "").replace(/(^|(?<!\\)\s)#[^\n]*/g, "$1");
 
 /**
  * Whether a shell command is a test, build, lint, or type check whose exit status reaches the
@@ -47,10 +56,10 @@ const notACheck = (part: string): boolean => PRINTS_OR_INSPECTS.test(part) || AS
  * other command's status, so it does not count.
  */
 export function isVerify(command: string, config: Config): boolean {
-  const bare = command.replace(/"[^"]*"|'[^']*'/g, "");
-  // Only a `set -o pipefail` statement turns the option on; the word in an echo or a comment does not.
+  const bare = executed(command);
+  // Only a `set` statement changes the option, the word in an echo or a comment does not, and the last one wins.
   const pipefail =
-    /(?:^|[;&\n])\s*set\s+-\w*o\s+pipefail\b/.test(bare) && !/\bset\s+\+o\s+pipefail\b/.test(bare);
+    [...bare.matchAll(/(?:^|[;&\n])\s*set\s+([+-])\w*o\s+pipefail\b/g)].at(-1)?.[1] === "-";
   const last =
     bare
       .split(/[;\n]/)
@@ -61,11 +70,62 @@ export function isVerify(command: string, config: Config): boolean {
     if (part.includes("||") || (!pipefail && part.includes("|"))) return false;
     // A lone `&` backgrounds the check; `2>&1` and `&>` are redirections.
     if (/(?<!>)&(?!>)/.test(part)) return false;
-    if (notACheck(part)) return false;
+    // Under pipefail the check is the command that feeds the pipe, so `^npm test$` names it.
+    const check = part.split("|")[0]!.trim();
+    if (notACheck(check)) return false;
     return config.verify
-      ? config.verify.some((p) => safeRegex(p)?.test(part))
-      : VERIFY.some((re) => re.test(part));
+      ? config.verify.some((p) => safeRegex(p)?.test(check))
+      : VERIFY.some((re) => re.test(check));
   });
+}
+
+/**
+ * `<check> | tail -20` behind `set -o pipefail`, so the check's own exit status is the command's.
+ * Null when the command already counts, or when pipefail would not make it count. Only `tail`
+ * qualifies: it reads to the end, while `head` or `grep -q` quit early and kill the check with
+ * SIGPIPE. `&&` rather than `;`, so a shell without pipefail runs nothing instead of a masked check.
+ */
+export function withPipefail(command: string, config: Config): string | null {
+  if (isVerify(command, config)) return null;
+  const next = `set -o pipefail && ${command}`;
+  if (!isVerify(next, config)) return null;
+  return /(?<!\|)\|(?!\|)(?!\s*tail\b)/.test(executed(command)) ? null : next;
+}
+
+/** The command that runs this project's tests, named to the agent up front. A hint, never a check. */
+export function projectCheck(cwd: string): string | null {
+  const text = (name: string): string => {
+    try {
+      return readFileSync(join(cwd, name), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  let pkg: { scripts?: { test?: unknown }; packageManager?: unknown } = {};
+  try {
+    pkg = JSON.parse(text("package.json") || "{}") as typeof pkg;
+  } catch {
+    // Not JSON: no scripts to name.
+  }
+  const test = pkg?.scripts?.test;
+  if (typeof test === "string" && !test.includes("no test specified")) {
+    const lock = ["pnpm-lock.yaml", "yarn.lock"].find((f) => existsSync(join(cwd, f)));
+    const runner =
+      typeof pkg.packageManager === "string"
+        ? pkg.packageManager.split("@")[0]
+        : (lock?.split(/[-.]/)[0] ?? "npm");
+    // `bun test` runs Bun's own test runner, not the script.
+    if (runner !== "bun") return `${runner} test`;
+  }
+  const just = ["justfile", "Justfile", ".justfile"].map(text).join("\n");
+  // Only a recipe that runs with no arguments: no parameters, or one `*args` that may be empty.
+  // `test-unit:` is another recipe, and `test target:` fails without its argument.
+  const recipe = /^(test|check)(?:\s+\*\w+)?\s*:(?!=)/m.exec(just)?.[1];
+  if (recipe) return `just ${recipe}`;
+  if (/^test\s*:/m.test(text("Makefile"))) return "make test";
+  if (existsSync(join(cwd, "Cargo.toml"))) return "cargo test";
+  if (existsSync(join(cwd, "go.mod"))) return "go test ./...";
+  return null;
 }
 
 const IGNORE =

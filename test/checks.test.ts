@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,9 @@ import {
   isIgnored,
   isScratch,
   isVerify,
+  projectCheck,
   testDamage,
+  withPipefail,
 } from "../src/checks.js";
 
 describe("findSecrets", () => {
@@ -51,6 +53,7 @@ describe("isVerify", () => {
     ["echo pipefail; pnpm test 2>&1 | tail -20", false],
     ["pnpm test | tail -20 # set -o pipefail", false],
     ["set -o pipefail; set +o pipefail; pnpm test | tail", false],
+    ["set +o pipefail; set -o pipefail; pnpm test | tail", true],
     ["pnpm test & echo done", false],
     ["pnpm test > out.log 2>&1", true],
     ["pnpm test || true", false],
@@ -66,6 +69,10 @@ describe("isVerify", () => {
     ["ruff format .", false],
     ['git commit -m "add pytest suite"', false],
     ["ls -la", false],
+    ["! npm test", false],
+    ["true # npm test", false],
+    ["npm test # every suite", true],
+    ["npm test -- --grep=\\ #foo | tail", false],
   ])("%s -> %s", (cmd, yes) => expect(isVerify(cmd, {})).toBe(yes));
 
   // Every gate bypass so far was a combination nobody had written down, so the table is a product:
@@ -225,5 +232,35 @@ describe("fingerprint", () => {
     const started = performance.now();
     fingerprint("pnpm test", "ok\n" + "9".repeat(200_000));
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
+it("reads a configured check against the command that feeds a pipefail pipe", () => {
+  const config = { verify: ["^npm test$"] };
+  expect(isVerify("set -o pipefail; npm test | tail -5", config)).toBe(true);
+  expect(withPipefail("npm test | tail -5", config)).toBe("set -o pipefail && npm test | tail -5");
+});
+
+describe("projectCheck", () => {
+  const npmDefault = '{"scripts":{"test":"echo \\"Error: no test specified\\" && exit 1"}}';
+  it.each([
+    [{ "package.json": '{"scripts":{"test":"vitest"}}' }, "npm test"],
+    [{ "package.json": '{"scripts":{"test":"vitest"}}', "pnpm-lock.yaml": "" }, "pnpm test"],
+    [{ "package.json": '{"packageManager":"yarn@4.1.0","scripts":{"test":"jest"}}' }, "yarn test"],
+    [{ "package.json": '{"packageManager":"bun@1.2.0","scripts":{"test":"vitest"}}' }, null],
+    [
+      { "package.json": npmDefault, justfile: "build:\n  tsc\ncheck *args:\n  pnpm test" },
+      "just check",
+    ],
+    [{ "package.json": "not json", Makefile: "test:\n\tpytest\n" }, "make test"],
+    [{ "go.mod": "module x" }, "go test ./..."],
+    [{ justfile: "test-unit:\n  vitest" }, null],
+    [{ justfile: "test target:\n  vitest {{target}}" }, null],
+    [{ "README.md": "# x" }, null],
+  ])("%j -> %s", (files, check) => {
+    const dir = mkdtempSync(join(tmpdir(), "canny-check-"));
+    mkdirSync(dir, { recursive: true });
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+    expect(projectCheck(dir)).toBe(check);
   });
 });

@@ -44,7 +44,7 @@ const { values: opts } = parseArgs({
 // in both arms: compare arms from one machine, not rows across machines.
 const AGENTS = {
   claude:
-    'claude -p "$PROMPT" --setting-sources project --permission-mode acceptEdits --allowedTools Bash Edit Write Read Glob Grep',
+    'claude -p "$PROMPT" --output-format json --setting-sources project --permission-mode acceptEdits --allowedTools Bash Edit Write Read Glob Grep',
   codex:
     'codex exec --skip-git-repo-check --dangerously-bypass-hook-trust -s workspace-write "$PROMPT"',
 };
@@ -95,7 +95,8 @@ function once(task, arm) {
     cwd: project,
     env: { ...env, PROMPT: prompt, ...(opts["agent-cmd"] && { BENCH_SECRET: secret, BENCH_TASK: src }) }, // prettier-ignore
     timeout: Number(opts["timeout-min"]) * 60_000,
-    stdio: ["ignore", "ignore", "inherit"],
+    stdio: ["ignore", "pipe", "inherit"],
+    maxBuffer: 64 * 1024 * 1024,
   });
   const seconds = Math.round((Date.now() - started) / 1000);
   // Only the task's own tests and its own `npm test` count, so neither a gutted test, nor a test the
@@ -111,16 +112,26 @@ function once(task, arm) {
       stdio: "ignore",
       timeout: 5 * 60_000,
     }).status === 0;
-  const row = { passes, seconds, agentExit: agent.status, ...verdicts(env.CANNY_HOME) };
+  const row = { passes, seconds, agentExit: agent.status, ...usage(agent.stdout), ...verdicts(env.CANNY_HOME) }; // prettier-ignore
   if (opts.keep) console.log(`  kept ${dir}`);
   else rmSync(dir, { recursive: true, force: true });
   return row;
 }
 
+/** Turns, cost, and model time from `claude -p --output-format json`; nothing for other agents. */
+function usage(stdout) {
+  try {
+    const r = JSON.parse(String(stdout));
+    return { turns: r.num_turns, costUsd: r.total_cost_usd, apiSeconds: Math.round(r.duration_api_ms / 100) / 10 }; // prettier-ignore
+  } catch {
+    return {};
+  }
+}
+
 /** How often Canny stepped in, read from the run's own ledgers. Zero in the control arm. */
 function verdicts(home) {
   // What was denied is kept in words: a deny is either the catch being measured or a false alarm.
-  const counts = { blocks: 0, denies: 0, notes: 0, denied: [] };
+  const counts = { blocks: 0, denies: 0, notes: 0, rewrites: 0, denied: [] };
   const sessions = join(home, "sessions");
   if (!existsSync(sessions)) return counts;
   for (const f of readdirSync(sessions, { recursive: true }).filter((f) => f.endsWith(".jsonl")))
@@ -138,15 +149,21 @@ function verdicts(home) {
         counts.denies++;
         counts.denied.push(String(e.message).slice(0, 300));
       } else if (e.decision === "note") counts.notes++;
+      else if (e.decision === "rewrite") counts.rewrites++;
     }
   return counts;
 }
 
-console.log(`\n${"task".padEnd(28)}${"arm".padEnd(10)}passed  blocks  denies`);
+console.log(`\n${"task".padEnd(28)}${"arm".padEnd(10)}passed  blocks  denies  rewrites  mean s  turns`);
 for (const task of tasks)
   for (const arm of opts.arm) {
     const mine = rows.filter((r) => r.task === task && r.arm === arm);
-    const sum = (k) => mine.reduce((n, r) => n + r[k], 0);
-    console.log(`${task.padEnd(28)}${arm.padEnd(10)}${`${sum("passes")}/${mine.length}`.padEnd(8)}${String(sum("blocks")).padEnd(8)}${sum("denies")}`); // prettier-ignore
+    const sum = (k) => mine.reduce((n, r) => n + (r[k] ?? 0), 0);
+    // Codex rows, and Claude rows whose output did not parse, carry no usage: left out, not read as zero.
+    const mean = (k) => {
+      const v = mine.map((r) => r[k]).filter((x) => typeof x === "number");
+      return v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1) : "-";
+    };
+    console.log(`${task.padEnd(28)}${arm.padEnd(10)}${`${sum("passes")}/${mine.length}`.padEnd(8)}${String(sum("blocks")).padEnd(8)}${String(sum("denies")).padEnd(8)}${String(sum("rewrites")).padEnd(10)}${mean("seconds").padEnd(8)}${mean("turns")}`); // prettier-ignore
   }
 console.log(`\nrows: ${results}`);

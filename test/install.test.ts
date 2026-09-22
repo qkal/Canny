@@ -73,6 +73,7 @@ describe("merge", () => {
   it("creates the file with Canny's hooks when there is none", () => {
     expect(merge(file, ours)).toBe(`wrote ${file}`);
     expect(Object.keys(json().hooks as object)).toEqual([
+      "SessionStart",
       "PreToolUse",
       "PostToolUse",
       "PostToolUseFailure",

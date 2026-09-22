@@ -520,6 +520,79 @@ describe("rule check", () => {
   });
 });
 
+describe("pipefail rewrite", () => {
+  const pre = (command: string, agent: Agent = "claude", tool = "Bash") => {
+    const input = {
+      session_id: "s1",
+      cwd,
+      hook_event_name: "PreToolUse",
+      tool_name: tool,
+      tool_input: { command, description: "run the tests" },
+    };
+    const ctx = normalize(input, agent);
+    return handle(ctx, { config: {}, judge: offline, file }).then((d) => ({
+      d,
+      out: serialize(ctx, d, input),
+    }));
+  };
+
+  it.each([
+    ["npm test 2>&1 | tail -20", "set -o pipefail && npm test 2>&1 | tail -20"],
+    ["cd web && pnpm vitest run | tail -n 40", "set -o pipefail && cd web && pnpm vitest run | tail -n 40"], // prettier-ignore
+    // `head` and `grep -q` quit early, and SIGPIPE would fail a passing check.
+    ["npm test | head -5", null],
+    ["! npm test | tail -20", null],
+    ["true # npm test | tail -20", null],
+    ["npm test | grep -q ok", null],
+    ["npm test | tail -3; echo done", null],
+    ["npm test |& tail", null],
+    ["echo npm test | tail", null],
+    ["npm test", null],
+    ["set -o pipefail; npm test | tail", null],
+  ])("%s -> %s", async (command, rewritten) => {
+    const { d } = await pre(command);
+    expect(d.kind === "rewrite" ? d.command : null).toBe(rewritten);
+  });
+
+  it("keeps the rest of the tool input, and says allow only to Codex", async () => {
+    const claude = (await pre("npm test | tail")).out;
+    expect(claude).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        updatedInput: {
+          command: "set -o pipefail && npm test | tail",
+          description: "run the tests",
+        },
+        additionalContext: expect.stringContaining("pipefail"),
+      },
+    });
+    const codex = (await pre("npm test | tail", "codex")).out;
+    expect(codex).toMatchObject({ hookSpecificOutput: { permissionDecision: "allow" } });
+    expect((await pre("npm test | tail", "claude", "PowerShell")).d.kind).toBe("allow");
+  });
+
+  it("still denies a piped check that keeps failing, though the ledger holds it rewritten", async () => {
+    for (let i = 0; i < 3; i++) await ran("set -o pipefail && npm test | tail", 1);
+    expect((await pre("npm test | tail")).d.kind).toBe("deny");
+  });
+});
+
+describe("session start", () => {
+  it("tells the agent what the gate wants and names the project's check, recording nothing", async () => {
+    writeFileSync(join(cwd, "package.json"), '{"scripts":{"test":"vitest run"}}');
+    writeFileSync(join(cwd, "pnpm-lock.yaml"), "");
+    const ctx = normalize({ session_id: "s1", cwd, hook_event_name: "SessionStart" });
+    const d = await handle(ctx, { config: {}, judge: offline, file });
+    expect(serialize(ctx, d)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: expect.stringContaining("This project's check is `pnpm test`."),
+      },
+    });
+    expect(read(file)).toEqual([]);
+  });
+});
+
 describe("serialize", () => {
   it("emits an empty object for allow and the block shape for block", () => {
     const ctx = normalize({ hook_event_name: "Stop" });

@@ -66,7 +66,7 @@ async function hook() {
         const ctx = normalize(raw, opts.agent);
         const file = sessionFile(ctx.agent, ctx.session);
         const judge = makeJudge({ log: (e) => append(file, { ts: Date.now(), type: "jev", ...e }) });
-        out = serialize(ctx, await handle(ctx, { config: loadConfig(ctx.cwd), judge, file }));
+        out = serialize(ctx, await handle(ctx, { config: loadConfig(ctx.cwd), judge, file }), raw);
     }
     catch (e) {
         mkdirSync(home(), { recursive: true, mode: 0o700 });
