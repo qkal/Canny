@@ -45,7 +45,7 @@ switch (cmd) {
         break;
     default:
         console.log([
-            "canny: a warden for AI coding agents",
+            "canny: a supervision layer for AI coding agents",
             "",
             "  canny init [--claude] [--codex] [--global]   write hook config for this project (or your home)",
             "  canny hook --agent claude|codex              run as a hook; reads the event on stdin",

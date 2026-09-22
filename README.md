@@ -1,6 +1,6 @@
 # Canny
 
-A warden for AI coding agents. It hooks into Claude Code and Codex CLI, keeps a ledger of what the agent actually did, and will not let it finish on a claim.
+A supervision layer for AI coding agents. It hooks into Claude Code and Codex CLI, keeps a ledger of what the agent actually did, and will not let it finish on a claim.
 
 [![ci](https://github.com/qkal/canny/actions/workflows/ci.yml/badge.svg)](https://github.com/qkal/canny/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/qkal/canny)](LICENSE)
@@ -49,7 +49,7 @@ Canny is not on npm. Your agent installs it from this repository: a clone and on
 Paste this into Claude Code or Codex, inside the project you want guarded:
 
 ```text
-Install Canny (https://github.com/qkal/canny), a warden that checks your work through this agent's hooks, and hook it into this project.
+Install Canny (https://github.com/qkal/canny), a supervisor that checks your work through this agent's hooks, and hook it into this project.
 
 1. Confirm `node --version` is 22 or newer. If not, stop and tell me.
 2. If ~/.canny/src exists, run `git -C ~/.canny/src pull --ff-only`. Otherwise run `git clone https://github.com/qkal/canny.git ~/.canny/src`. There is nothing to build or install.
@@ -245,7 +245,7 @@ Canny is not another destructive-command blocker. That space is crowded, and [Po
 
 - [nullius](https://github.com/TejasViswa/nullius): evidence gates for Claude Code, no model. The closest relative.
 - [Mindlas](https://github.com/evolutionairy-ai/mindlas): drift gauges for long sessions.
-- [pi-warden](https://github.com/DevMortimer/pi-warden) and [pi-jev](https://github.com/y0usaf/pi-jev): the warden idea, and Jev as a judge, for the Pi agent. Canny borrows the shape and adds the rule that only facts block.
+- [pi-warden](https://github.com/DevMortimer/pi-warden) and [pi-jev](https://github.com/y0usaf/pi-jev): the supervision-layer idea, and Jev as a judge, for the Pi agent. Canny borrows the shape and adds the rule that only facts block.
 - [Claude Code hooks reference](https://code.claude.com/docs/en/hooks) and [Codex hooks](https://developers.openai.com/codex/hooks): the two wire formats Canny normalizes.
 - TypeSafe: [landing page](https://typesafe.ai), [docs](https://docs.typesafe.ai), [how to build with System One](https://docs.typesafe.ai/concepts/how-to-build-with-system-one), [Noul](https://docs.typesafe.ai/primitives/noul), [confidence and thresholds](https://docs.typesafe.ai/confidence), [self-consistency cookbook](https://docs.typesafe.ai/cookbooks/consistency_noul_cookbook).
 - House rules: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) for `CHANGELOG.md`, [Conventional Commits](https://www.conventionalcommits.org/) for history.
