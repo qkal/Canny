@@ -4,6 +4,10 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-23
+
+Everything since 0.2.0. The `v0.2.1` tag and its GitHub release marked a commit in between without a version bump or a changelog section, so its changes are listed here.
+
 ### Added
 
 - A `SessionStart` hook tells the agent what the done-gate asks for before it starts, and names the project's test command when `package.json`, a `justfile`, a `Makefile`, `Cargo.toml`, or `go.mod` gives one. Before, the agent learned the rule from its first blocked Stop and paid an extra turn for it. Run `canny init` again to add the hook to an existing project.
@@ -84,6 +88,7 @@ First release.
 - Claude Code and Codex CLI support from one codebase: shell writes by redirection are counted as edits, Claude Code's `PostToolUseFailure` carries the exit code, and Codex's exit code is read from the session transcript.
 - `canny init` writes hook config for a project or, with `--global`, for the home directory.
 
-[Unreleased]: https://github.com/qkal/canny/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/qkal/canny/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/qkal/canny/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/qkal/canny/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qkal/canny/releases/tag/v0.1.0
