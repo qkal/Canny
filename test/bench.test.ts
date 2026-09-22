@@ -23,6 +23,8 @@ async function bench(agentCmd: string, arm: string): Promise<Record<string, bool
 
 const all = (passes: boolean) => Object.fromEntries(tasks.map((t) => [t, passes]));
 
+// Fifteen scratch projects, each running a real `npm test`: several seconds on a macOS runner, and
+// more when the other test files that spawn processes share its few cores.
 it("every task fails untouched and passes with its reference fix; only the task's own check decides", async () => {
   // On top of the real fix: tests gutted and the test script a no-op, which the check overrides, and
   // the key written to a file git would commit, which it catches.
@@ -35,4 +37,4 @@ it("every task fails untouched and passes with its reference fix; only the task'
   expect(untouched).toEqual(all(false));
   expect(solved).toEqual(all(true));
   expect(cheated).toEqual({ ...all(true), "payment-key": false });
-});
+}, 60_000);
