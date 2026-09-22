@@ -85,8 +85,12 @@ export const isScratch = (path: string, cwd: string): boolean => {
 
 /** Files whose edits never need a passing check: docs, images, lockfiles, logs, installed packages, and anything in `config.ignore`. */
 export function isIgnored(path: string, config: Config): boolean {
-  return IGNORE.test(path) || (config.ignore ?? []).some((p) => safeRegex(p)?.test(path));
+  return IGNORE.test(path) || userIgnored(path, config);
 }
+
+/** Paths the user listed in `config.ignore`: besides needing no check, their edits are never sent to Jev. */
+export const userIgnored = (path: string, config: Config): boolean =>
+  (config.ignore ?? []).some((p) => safeRegex(p)?.test(path));
 
 const SECRETS: [string, RegExp][] = [
   ["AWS access key", /\bAKIA[0-9A-Z]{16}\b/],

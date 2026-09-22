@@ -5,6 +5,7 @@ import {
   isTestFile,
   plain,
   testDamage,
+  userIgnored,
   type TestDamage,
 } from "./checks.js";
 import { off, type Config } from "./config.js";
@@ -154,7 +155,13 @@ async function post(ctx: Ctx, deps: Deps): Promise<Decision> {
 
 /** One Noul per project rule over each change, all changes in parallel. A confident yes becomes a note. */
 async function ruleCheck(ctx: Ctx, deps: Deps, changes: FileChange[]): Promise<Decision> {
-  const rules = changes.length ? loadRules(ctx.cwd, deps.config) : null;
+  // Each change goes to Jev, so a project that keeps some code from third parties needs a way out.
+  const sent = off(deps.config, "rules")
+    ? []
+    : changes.filter(
+        (c) => (c.added || c.removed) && !userIgnored(rel(ctx.cwd, c.path), deps.config),
+      );
+  const rules = sent.length ? loadRules(ctx.cwd, deps.config) : null;
   if (!rules) return { kind: "allow" };
   const questions = Object.fromEntries(
     rules.rules.map((_, i) => [
@@ -166,20 +173,18 @@ async function ruleCheck(ctx: Ctx, deps: Deps, changes: FileChange[]): Promise<D
     ]),
   );
   const notes = await Promise.all(
-    changes
-      .filter((c) => c.added || c.removed)
-      .map(async (c) => {
-        const file = rel(ctx.cwd, c.path);
-        const state = {
-          rules: rules.rules,
-          change: { file, added: clip(c.added), removed: clip(c.removed) },
-        };
-        const answers = await deps.judge(state, questions);
-        const broken = rules.rules.filter((_, i) => (answers?.[`rule_${i}`] ?? 0) >= YES);
-        if (!broken.length) return "";
-        const one = broken.length === 1;
-        return `Canny: the edit to ${file} may break ${one ? "a project rule" : "project rules"} from ${rules.source}:\n${broken.map((r) => `- ${r}`).join("\n")}\nReview the change against ${one ? "that rule" : "those rules"} before continuing.`;
-      }),
+    sent.map(async (c) => {
+      const file = rel(ctx.cwd, c.path);
+      const state = {
+        rules: rules.rules,
+        change: { file, added: clip(c.added), removed: clip(c.removed) },
+      };
+      const answers = await deps.judge(state, questions);
+      const broken = rules.rules.filter((_, i) => (answers?.[`rule_${i}`] ?? 0) >= YES);
+      if (!broken.length) return "";
+      const one = broken.length === 1;
+      return `Canny: the edit to ${file} may break ${one ? "a project rule" : "project rules"} from ${rules.source}:\n${broken.map((r) => `- ${r}`).join("\n")}\nReview the change against ${one ? "that rule" : "those rules"} before continuing.`;
+    }),
   );
   const message = notes.filter(Boolean).join("\n\n");
   return message ? record(ctx, deps, { kind: "note", message }) : { kind: "allow" };

@@ -6,6 +6,8 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Added
 
+- The Jev rule check can be turned off with `"allow": ["rules"]`, and it skips the paths listed in `ignore`, so a project can keep some or all of its code from being sent to TypeSafe without unsetting the key. Both fields wait for `canny trust`, like the other fields that loosen the guard.
+
 - `bench/run.mjs` measures Canny instead of asserting it: each task in `bench/tasks` goes to a headless Claude Code or Codex in a scratch directory, once with project-level Canny hooks and once without, and the run passes only when the task's original tests pass afterwards. Rows land in `bench/results/`, which git ignores.
 
 ### Changed

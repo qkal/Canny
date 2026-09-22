@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
-import { findSecrets, isPrivateEnv, isTestFile, plain, testDamage, } from "./checks.js";
+import { findSecrets, isPrivateEnv, isTestFile, plain, testDamage, userIgnored, } from "./checks.js";
 import { off } from "./config.js";
 import { fileOps, shellEdits, shellWrites } from "./events.js";
 import { NO, YES, noul } from "./jev.js";
@@ -134,7 +134,11 @@ async function post(ctx, deps) {
 }
 /** One Noul per project rule over each change, all changes in parallel. A confident yes becomes a note. */
 async function ruleCheck(ctx, deps, changes) {
-    const rules = changes.length ? loadRules(ctx.cwd, deps.config) : null;
+    // Each change goes to Jev, so a project that keeps some code from third parties needs a way out.
+    const sent = off(deps.config, "rules")
+        ? []
+        : changes.filter((c) => (c.added || c.removed) && !userIgnored(rel(ctx.cwd, c.path), deps.config));
+    const rules = sent.length ? loadRules(ctx.cwd, deps.config) : null;
     if (!rules)
         return { kind: "allow" };
     const questions = Object.fromEntries(rules.rules.map((_, i) => [
@@ -144,9 +148,7 @@ async function ruleCheck(ctx, deps, changes) {
             false: "The change follows the rule, or the rule does not apply to this change",
         }),
     ]));
-    const notes = await Promise.all(changes
-        .filter((c) => c.added || c.removed)
-        .map(async (c) => {
+    const notes = await Promise.all(sent.map(async (c) => {
         const file = rel(ctx.cwd, c.path);
         const state = {
             rules: rules.rules,
