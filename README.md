@@ -188,7 +188,7 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 ```json
 {
   "verify": ["^just check", "uv run pytest"],
-  "require": ["^pnpm test", "tsc"],
+  "require": ["uv run pytest"],
   "ignore": ["^generated/"],
   "rules": ["Never hardcode model IDs.", "Use pnpm, not npm."],
   "allow": ["test-removal"],
@@ -197,7 +197,7 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 ```
 
 - `verify`: regexes for commands that count as a check. Replaces the built-in list of about eighty: pytest, vitest, jest, go test, cargo test, swift test, node --test, tsc, eslint, ruff, pre-commit, and so on. Quoted strings are stripped before matching, so a commit message that mentions pytest does not count. The check's own exit status has to be the result: followed by `|| true`, followed by `; echo done`, or piped into anything without `pipefail`, it does not count. A Bash check piped only into `tail` is run with `pipefail` added, so it counts.
-- `require`: regexes that each have to match a passing check after the last code edit. Without it, any one check opens the done-gate, so a lint run after a logic change is enough. Each pattern is matched against a command that already counts as a check, so it cannot add to what counts: a command off the built-in list goes in `verify` as well. `pnpm lint && pnpm test` satisfies a pattern for each. `canny status` shows how many have passed.
+- `require`: regexes that each have to match a passing check after the last code edit. Without it, any one check opens the done-gate, so a lint run after a logic change is enough. Each pattern is matched against a command that already counts as a check, so it cannot add to what counts: a command off the built-in list goes in `verify` as well, and when `verify` is set, every required command has to be on it, as `uv run pytest` is above. One command can satisfy several patterns: `pnpm lint && pnpm test` satisfies one for each. `canny status` shows how many have passed.
 - `ignore`: regexes for edited paths that never need a check. Adds to docs, images, and lockfiles. Edits to these paths are also never sent to Jev.
 - `rules`: the rules Jev is asked about. Replaces the automatic extraction of instruction-like bullets from `CLAUDE.md`, `AGENTS.md`, and `.claude/CLAUDE.md`, which keeps at most 24, strongest wording first. Because it replaces that extraction, it waits for `canny trust`.
 - `allow`: checks to turn off: `secrets`, `test-removal`, `repeat-failure`, `rules`. With `rules` off, no edit is sent to Jev; the done-claim question at Stop still is when a key is set.

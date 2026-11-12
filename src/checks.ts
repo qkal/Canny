@@ -82,9 +82,12 @@ function checksIn(command: string, config: Config): string[] {
       .split(/[;\n]/)
       .map((s) => s.trim())
       .findLast(Boolean) ?? "";
-  return last.split("&&").flatMap((raw) => {
-    const part = raw.trim();
-    if (part.includes("||") || (!pipefail && part.includes("|"))) return [];
+  const parts = last.split("&&").map((s) => s.trim());
+  // `a && b || true` exits 0 when `a` fails: an `||` rescues every check before it, and the one
+  // after it may never run. Only what follows the last `||` part reports its own status.
+  const from = parts.findLastIndex((p) => p.includes("||")) + 1;
+  return parts.slice(from).flatMap((part) => {
+    if (!pipefail && part.includes("|")) return [];
     // A lone `&` backgrounds the check; `2>&1` and `&>` are redirections.
     if (/(?<!>)&(?!>)/.test(part)) return [];
     // Under pipefail the check is the command that feeds the pipe, so `^npm test$` names it.
