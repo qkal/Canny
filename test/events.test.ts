@@ -233,6 +233,61 @@ describe("writeTargets", () => {
     });
     expect(ctx.event).toMatchObject({ changedFiles: ["a.js"] });
   });
+
+  // Real commands that put phantom files in the ledger and blocked Stop with nothing to verify.
+  const changed = (command: string): unknown =>
+    (
+      normalize({
+        ...base,
+        hook_event_name: "PostToolUse",
+        tool_name: "Bash",
+        tool_input: { command },
+        tool_response: { stdout: "", stderr: "" },
+      }).event as { changedFiles: string[] }
+    ).changedFiles;
+
+  it.each([
+    // A command quoted for another machine changes nothing here.
+    ['ssh host "B=~/bk; mkdir -p \\$B/lp1 && cp /srv/lp1/index.html \\$B/lp1/"', []],
+    ["ssh host 'sed -i s/a/b/ /srv/x.ts'", []],
+    // A search pattern is text: `cp |mv ` inside quotes copies nothing.
+    ['grep -nE "ignore|write|cp |mv " events.ts', []],
+    ["grep -n 'rm -rf' notes.txt > hits.txt", ["hits.txt"]],
+    // Quoted file names are still files.
+    ['cp "a b.ts" c.ts', ["c.ts"]],
+    // A heredoc body with an apostrophe does not swallow the shell after it.
+    ["cat > a.md <<'EOF'\nit's\nEOF\nsed -i '' s/a/b/ x.ts", ["a.md", "x.ts"]],
+    // A loop over literal files names those files; a variable nothing defines names no file.
+    [
+      "for f in web/a.html web/b.html; do sed -i '' -e 's/x/y/g' \"$f\"; done",
+      ["web/a.html", "web/b.html"],
+    ],
+    ['for d in a b; do cp x.ts "$d/x.ts"; done', ["a/x.ts", "b/x.ts"]],
+    ['sed -i "" s/a/b/ "$f"', []],
+    ["cp a.ts $DST/a.ts", []],
+    ["for f in *.html; do sed -i '' s/a/b/ \"$f\"; done", []],
+    // A variable set to a literal by its own statement stands for that value.
+    ["SRC=src/a.ts; echo x > $SRC", ["src/a.ts"]],
+    ['export OUT="dist" && cp a.ts $OUT/a.ts', ["dist/a.ts"]],
+    // A prefix assignment is set after `$OUT` is expanded, and a substitution is only known at run time.
+    ["OUT=dist cp a.ts $OUT/a.ts", []],
+    ['DST=$(mktemp -d); cp a.ts "$DST/a.ts"', []],
+    // A substitution is one word and names no file Canny can know: not `+%Y%m%d)`.
+    ["cp ~/.claude/settings.json ~/.claude/settings.json.bak-$(date +%Y%m%d)", []],
+    ['cp a.ts "b-$(date +%s).ts"', []],
+    ["cp a.ts b-`date`.ts", []],
+    ['cp a.ts "${OUT:-dist}/a.ts"', []],
+    // Relative paths follow a leading `cd`.
+    ['cd "/repo/web"; sed -i "" s/a/b/ x.html', ["/repo/web/x.html"]],
+    ["cd sub && echo hi > note.ts", ["sub/note.ts"]],
+    ["cd /repo/web; cp a.ts /abs/b.ts", ["/abs/b.ts"]],
+    // A home path is not relative to the `cd`, and after a second `cd` the directory is not known.
+    ["cd web && echo x > ~/notes.ts", ["~/notes.ts"]],
+    ["cd web && pnpm test && cd .. && echo x > a.ts", ["a.ts"]],
+    // A quote escaped outside a string opens nothing, so the `rm` between two of them still runs.
+    ["echo it\\'s; rm tests/a.test.ts; echo that\\'s", ["tests/a.test.ts"]],
+    ['echo \\"a\\"; rm tests/x.test.ts; echo "b"', ["tests/x.test.ts"]],
+  ])("changedFiles %j -> %j", (cmd, files) => expect(changed(cmd)).toEqual(files));
 });
 
 describe("Codex exit codes", () => {
