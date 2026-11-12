@@ -105,8 +105,10 @@ function once(task, arm) {
   const check = existsSync(join(src, "check")) ? "check" : "test";
   cpSync(join(src, check), join(project, "test"), { recursive: true });
   cpSync(join(src, "package.json"), join(project, "package.json"));
+  // Through a shell: npm is `npm.cmd` on Windows, which cannot be started directly.
   const passes =
-    spawnSync("npm", ["test"], {
+    spawnSync("npm test", {
+      shell: true,
       cwd: project,
       env: { ...clean, BENCH_SECRET: secret },
       stdio: "ignore",
