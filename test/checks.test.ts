@@ -1,12 +1,12 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   findSecrets,
   fingerprint,
+  inProject,
   isIgnored,
-  isScratch,
   isVerify,
   requiredBy,
   projectCheck,
@@ -31,18 +31,32 @@ describe("findSecrets", () => {
   ])("ignores %s", (text) => expect(findSecrets(text)).toEqual([]));
 });
 
-describe("isScratch", () => {
+describe("inProject", () => {
   const project = "/tmp/proj";
   it.each([
-    ["/tmp/other.json", true],
-    ["../sibling.ts", true],
-    ["src/a.ts", false],
+    ["/tmp/other.json", false],
+    ["../sibling.ts", false],
+    ["/home/me/.zshrc", false],
+    ["src/a.ts", true],
+    ["/tmp/proj/src/a.ts", true],
     // `relative` answers "..data.ts" here, which is a file in the project, not a step above it.
-    ["..data.ts", false],
-    ["src/..data.ts", false],
-  ])("%s under a project that itself lives in a temp directory -> %s", (path, scratch) =>
-    expect(isScratch(path, project)).toBe(scratch),
+    ["..data.ts", true],
+    ["src/..data.ts", true],
+  ])("%s under a project that itself lives in a temp directory -> %s", (path, yes) =>
+    expect(inProject(path, project)).toBe(yes),
   );
+
+  it("reaches up to the repository when the agent works in a subdirectory of it", () => {
+    const repo = mkdtempSync(join(tmpdir(), "canny-root-"));
+    mkdirSync(join(repo, ".git"));
+    mkdirSync(join(repo, "web"));
+    expect(inProject("../api/a.ts", join(repo, "web"))).toBe(true);
+    expect(inProject("../../elsewhere/a.ts", join(repo, "web"))).toBe(false);
+    // Through a symlink the cwd has the link's parents, which hold no `.git`.
+    const link = join(mkdtempSync(join(tmpdir(), "canny-link-")), "web");
+    symlinkSync(join(repo, "web"), link);
+    expect(inProject(join(repo, "api/a.ts"), link)).toBe(true);
+  });
 });
 
 describe("isVerify", () => {
@@ -68,6 +82,25 @@ describe("isVerify", () => {
     ["python3 -m unittest discover -s tests", true],
     ["python -m pytest", true],
     ["python3 -m pytest", true],
+    ["python tests.py", true],
+    ["cd scripts && PYTHONIOENCODING=utf-8 python _zoho_social_tests.py", true],
+    ["python3 tests/test_api.py > out.log 2>&1", true],
+    ["node test.js", true],
+    ["node src/math.test.mjs", true],
+    ["ruby test/user_test.rb", true],
+    ["python -u tests.py", true],
+    ["node --enable-source-maps test.js", true],
+    ["python -c 'import sys' tests.py", false],
+    ['node --eval "0" test.js', false],
+    ["node --print=1 test.js", false],
+    ["node -v test.js", false],
+    ["node -pe 1 test.js", false],
+    ["ruby -c test/user_test.rb", false],
+    ["python -m http.server tests.py", false],
+    ["python manage.py runserver", false],
+    ["python latest.py", false],
+    ["node test/fixtures/scrub.mjs", false],
+    ["python tests.py | tail -5", false],
     ["pnpm type-check", true],
     ["cargo build --release", true],
     ["ruff check .", true],

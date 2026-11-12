@@ -10,6 +10,9 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- A file outside the project no longer holds the done-gate. An edit to `~/.zshrc`, a key written to the home directory, or a copy into another checkout used to count as a code change that no project check could clear, so a session doing only configuration work was blocked with nothing to run. The project is the nearest directory at or above the session's that holds `.git`, so an edit elsewhere in the repository still counts when the agent works in a subdirectory. A leading `~` in a shell path is read as the home directory.
+- A test file run directly counts as a check: `python tests.py`, `python3 tests/test_api.py`, `node test.js`, `ruby test/user_test.rb`. The file name has to say it is a test (`test`, `tests`, `test_*`, `*_test`, `*_tests`, `*.test`, `*.spec`), so `python manage.py` still checks nothing.
+- The block reason says a redirect into a file (`> out.log 2>&1`) does not hide a check's exit status, next to the forms that do.
 - A check followed later in the same command by `||` no longer counts as passing: `pnpm test && echo ok || true` exits 0 when the tests fail, because the `||` rescues every command before it. Only an `||` directly after the check was caught before.
 
 ## [0.3.0] - 2026-09-23
