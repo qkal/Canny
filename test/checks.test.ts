@@ -195,7 +195,8 @@ describe("isTestFile", () => {
 describe("native", () => {
   it.each([
     ["/c/Users/me/proj", "c:/Users/me/proj"],
-    ["/c", "c:"],
+    ["/c", "c:/"],
+    ["/c/", "c:/"],
     ["/code/proj", "/code/proj"],
     ["C:\\Users\\me", "C:\\Users\\me"],
     ["src/a.ts", "src/a.ts"],

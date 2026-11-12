@@ -160,7 +160,8 @@ export const slash = (path: string): string => path.replaceAll("\\", "/");
  * takes for `C:\c\Users`. Elsewhere `/c/Users` is a real directory and stays as it is.
  */
 export const native = (path: string, windows = sep === "\\"): string =>
-  windows ? path.replace(/^\/([a-zA-Z])(?=\/|$)/, "$1:") : path;
+  // `c:/`, not `c:`: a bare drive is the directory the process is in on that drive, not its root.
+  windows ? path.replace(/^\/([a-zA-Z])(?:\/|$)/, "$1:/") : path;
 
 const IGNORE =
   /(^|\/)docs?\/|(^|\/)(node_modules|\.venv|__pycache__|coverage|\.cache|\.git)(\/|$)|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
