@@ -8,8 +8,9 @@ const VERIFY = [
     /\b(eslint|oxlint|biome (check|lint)|prettier --check|ruff (check|format --check)|flake8|pylint|mypy|pyright|pyrefly|ty check|pnpm type-check|npm run lint|pnpm lint|pnpm run lint|yarn lint|golangci-lint|cargo clippy|swiftlint|swift-format lint|pre-commit run|just lint|just check|rubocop|shellcheck)\b/,
     // A test file run directly: `python tests.py`, `node test.js`. The name has to say it is one,
     // since `python manage.py` and `node test/fixtures/scrub.mjs` check nothing. Options may come
-    // first (`python -u tests.py`), but not `-c`, `-m`, `-e`, or `-p`: after those the file is an argument.
-    /\b(?:python[\d.]*|node|ruby)(?:\s+-(?![cmep]\b)[\w-]+(?:=\S+)?)*\s+(?:[^\s;|&]*[/\\])?(?:tests?|test_[\w.-]+|[\w.-]+[_.](?:tests?|spec))\.(?:py|rb|[cm]?[jt]sx?)\b/,
+    // first (`python -u tests.py`), but none that evaluate, print, or only parse (`-c`, `-m`, `-e`,
+    // `-p`, `-v`, `-h`, `--eval`, `--print`, `--check`): with those the file is not what runs.
+    /\b(?:python[\d.]*|node|ruby)(?:\s+(?:-(?!\w*[cmepvVh])\w+|--(?!eval|print|check)[\w-]+(?:=\S+)?))*\s+(?:[^\s;|&]*[/\\])?(?:tests?|test_[\w.-]+|[\w.-]+[_.](?:tests?|spec))\.(?:py|rb|[cm]?[jt]sx?)\b/,
 ];
 // Config patterns are tested once per path and once per command segment, so each is compiled once.
 const compiled = new Map();
