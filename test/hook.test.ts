@@ -51,20 +51,28 @@ const edit = (path = "src/a.ts") =>
     tool_name: "Edit",
     tool_input: { file_path: join(cwd, path), old_string: "a", new_string: "b" },
   });
-const ran = (command: string, exit = 0) =>
+const ran = (command: string, exit = 0, config: Config = {}) =>
   exit === 0
-    ? run({
-        hook_event_name: "PostToolUse",
-        tool_name: "Bash",
-        tool_input: { command },
-        tool_response: { stdout: "ok", stderr: "" },
-      })
-    : run({
-        hook_event_name: "PostToolUseFailure",
-        tool_name: "Bash",
-        tool_input: { command },
-        error: `Exit code ${exit}\nFAIL same thing`,
-      });
+    ? run(
+        {
+          hook_event_name: "PostToolUse",
+          tool_name: "Bash",
+          tool_input: { command },
+          tool_response: { stdout: "ok", stderr: "" },
+        },
+        offline,
+        config,
+      )
+    : run(
+        {
+          hook_event_name: "PostToolUseFailure",
+          tool_name: "Bash",
+          tool_input: { command },
+          error: `Exit code ${exit}\nFAIL same thing`,
+        },
+        offline,
+        config,
+      );
 const stop = (
   judge: Judge = offline,
   config: Config = {},
@@ -147,6 +155,41 @@ describe("stop gate", () => {
     });
     expect((await stop()).kind).toBe("block");
   });
+
+  it("blocks until every required check has passed after the last edit", async () => {
+    const config: Config = { require: ["^pnpm test", "tsc"] };
+    await edit();
+    await ran("pnpm lint", 0, config);
+    await ran("pnpm test", 1, config);
+    await ran("tsc --noEmit", 0, config);
+    expect(await stop(offline, config)).toMatchObject({
+      kind: "block",
+      message: expect.stringContaining("Still needed: `^pnpm test`."),
+    });
+    expect(await stop(offline, config, true)).toMatchObject({
+      kind: "warn",
+      message: expect.stringContaining("without a pass of the required `^pnpm test`"),
+    });
+    await ran("pnpm test", 0, config);
+    expect(await stop(offline, config)).toEqual({ kind: "allow" });
+    expect(decideStop(summarize(read(file)), false, undefined, config)).toEqual({ kind: "allow" });
+    await edit("src/b.ts");
+    await ran("pnpm test", 0, config);
+    expect(await stop(offline, config)).toMatchObject({
+      message: expect.stringContaining("Still needed: `tsc`."),
+    });
+  });
+
+  // The field is obeyed from an untrusted file, so junk in it must neither crash the hook nor open the gate.
+  it.each([{ require: "pnpm test" }, { require: [5, "("] }] as unknown as Config[])(
+    "reads a malformed require as none: %j",
+    async (config) => {
+      await edit();
+      expect((await stop(offline, config)).kind).toBe("block");
+      await ran("pnpm test", 0, config);
+      expect(await stop(offline, config)).toEqual({ kind: "allow" });
+    },
+  );
 
   it("decideStop is pure over the summary", () => {
     const entries = read(file);
@@ -589,6 +632,13 @@ describe("session start", () => {
         additionalContext: expect.stringContaining("This project's check is `pnpm test`."),
       },
     });
+    expect(await handle(ctx, { config: { require: ["tsc"] }, judge: offline, file })).toMatchObject(
+      {
+        message: expect.stringContaining(
+          "each of these has to pass after your last code edit: `tsc`.",
+        ),
+      },
+    );
     expect(read(file)).toEqual([]);
   });
 });

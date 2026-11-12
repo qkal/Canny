@@ -4,6 +4,10 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- `require` in `.canny.json`: regexes that each have to match a passing check after the last code edit before a Stop is allowed. Until now any one check opened the done-gate, so `eslint` passing after a logic change let "done" through with the tests never run. The block reason, the `SessionStart` brief, and `canny status` name the checks still needed. The field only asks for more, so like `strict` it takes effect without `canny trust`; a pattern can only be satisfied by a command that already counts as a check.
+
 ## [0.3.0] - 2026-09-23
 
 Everything since 0.2.0. The `v0.2.1` tag and its GitHub release marked a commit in between without a version bump or a changelog section, so its changes are listed here.

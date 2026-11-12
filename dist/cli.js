@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { required } from "./checks.js";
 import { errorLog, findConfig, home, loadConfig, trust, weakened } from "./config.js";
 import { normalize } from "./events.js";
 import { CLAIMS_DONE_ID, decideStop, handle, serialize } from "./hook.js";
@@ -187,6 +188,11 @@ function status() {
     console.log(`events    ${entries.filter((e) => e.type === "event").length}`);
     console.log(`edited    ${s.codeFiles.length ? s.codeFiles.join(", ") : "nothing that needs a check"}`);
     console.log(`verified  ${s.verified ? `yes: \`${s.verified.command}\` passed after the last edit` : "no passing check since the last edit"}`);
+    // The config that applied is the one of the project the session ran in.
+    const need = required(loadConfig(sessionCwd(entries) ?? process.cwd()));
+    const open = need.filter((p) => !s.passed.includes(p));
+    if (need.length)
+        console.log(`required  ${need.length - open.length} of ${need.length} passed since the last edit${open.length ? `; still needed: ${open.join(", ")}` : ""}`);
     if (s.lastCommand)
         console.log(`last cmd  \`${s.lastCommand.command}\` exit ${s.lastCommand.exitCode ?? "?"}: ${s.lastCommand.summary}`);
     const repeats = Object.values(s.repeats).filter((r) => r.n > 1);

@@ -56,6 +56,23 @@ const executed = (command: string): string =>
  * other command's status, so it does not count.
  */
 export function isVerify(command: string, config: Config): boolean {
+  return checksIn(command, config).length > 0;
+}
+
+/** `config.require` as usable patterns. The field is read from an untrusted file, so anything but a string that compiles is dropped: a typo must not crash the hook open. */
+export const required = (config: Config): string[] =>
+  Array.isArray(config.require)
+    ? config.require.filter((p): p is string => typeof p === "string" && safeRegex(p) !== null)
+    : [];
+
+/** The `require` patterns this command satisfies. Only a check that counts can satisfy one, so the field never adds to what counts. */
+export function requiredBy(command: string, config: Config): string[] {
+  const checks = checksIn(command, config);
+  return required(config).filter((p) => checks.some((c) => safeRegex(p)!.test(c)));
+}
+
+/** The checks in a command whose own exit status is the command's result. */
+function checksIn(command: string, config: Config): string[] {
   const bare = executed(command);
   // Only a `set` statement changes the option, the word in an echo or a comment does not, and the last one wins.
   const pipefail =
@@ -65,17 +82,18 @@ export function isVerify(command: string, config: Config): boolean {
       .split(/[;\n]/)
       .map((s) => s.trim())
       .findLast(Boolean) ?? "";
-  return last.split("&&").some((raw) => {
+  return last.split("&&").flatMap((raw) => {
     const part = raw.trim();
-    if (part.includes("||") || (!pipefail && part.includes("|"))) return false;
+    if (part.includes("||") || (!pipefail && part.includes("|"))) return [];
     // A lone `&` backgrounds the check; `2>&1` and `&>` are redirections.
-    if (/(?<!>)&(?!>)/.test(part)) return false;
+    if (/(?<!>)&(?!>)/.test(part)) return [];
     // Under pipefail the check is the command that feeds the pipe, so `^npm test$` names it.
     const check = part.split("|")[0]!.trim();
-    if (notACheck(check)) return false;
-    return config.verify
+    if (notACheck(check)) return [];
+    const counts = config.verify
       ? config.verify.some((p) => safeRegex(p)?.test(check))
       : VERIFY.some((re) => re.test(check));
+    return counts ? [check] : [];
   });
 }
 

@@ -8,6 +8,7 @@ import {
   isIgnored,
   isScratch,
   isVerify,
+  requiredBy,
   projectCheck,
   testDamage,
   withPipefail,
@@ -134,6 +135,19 @@ describe("isVerify", () => {
     expect(isVerify("pnpm test", { verify: ["^just check$"] })).toBe(false);
     expect(isVerify("just check", { verify: ["^just check$"] })).toBe(true);
   });
+});
+
+describe("requiredBy", () => {
+  const config = { require: ["^pnpm test", "tsc", "^true$"] };
+  it.each([
+    ["pnpm lint && pnpm test", ["^pnpm test"]],
+    ["pnpm test && tsc --noEmit", ["^pnpm test", "tsc"]],
+    // The exit status is hidden, so the requirement is not met either.
+    ["pnpm test | tail -5", []],
+    // Only a check that counts can satisfy a requirement.
+    ["true", []],
+    ["pnpm test && true", ["^pnpm test"]],
+  ])("%s -> %j", (cmd, met) => expect(requiredBy(cmd, config)).toEqual(met));
 });
 
 describe("isIgnored", () => {

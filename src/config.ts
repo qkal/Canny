@@ -7,6 +7,8 @@ import { isObj } from "./events.js";
 export interface Config {
   /** Regexes for commands that count as verification. Replaces the built-in list. */
   verify?: string[];
+  /** Regexes that each have to match a passing check after the last code edit. Only asks for more, so it needs no trust. */
+  require?: string[];
   /** Regexes for edited paths that never need verification. Adds to the built-in list. */
   ignore?: string[];
   /** Project rules for the Jev rule check. Replaces the CLAUDE.md and AGENTS.md extraction. */
