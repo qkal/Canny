@@ -285,6 +285,7 @@ describe("writeTargets", () => {
     ["cd web && echo x > ~/notes.ts", [`${homedir()}/notes.ts`]],
     // A quoted `~` is a directory of that name, here.
     ['echo x > "~/notes.ts"', ["~/notes.ts"]],
+    ["cd //server/share/repo && echo x > src/a.ts", ["//server/share/repo/src/a.ts"]],
     ["rm '~/a.ts' ~/b.ts", ["~/a.ts", `${homedir()}/b.ts`]],
     ["cd web && pnpm test && cd .. && echo x > a.ts", ["a.ts"]],
     // A quote escaped outside a string opens nothing, so the `rm` between two of them still runs.
