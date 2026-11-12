@@ -30,7 +30,10 @@ const canny = (args: string[], input = ""): string =>
 beforeAll(() => {
   const build = realpathSync(mkdtempSync(join(tmpdir(), "canny-build-")));
   writeFileSync(join(build, "package.json"), '{"type":"module"}');
-  execFileSync("pnpm", ["exec", "tsc", "--outDir", build], { stdio: "inherit" });
+  // tsc's own entry file under this node: `pnpm` is `pnpm.cmd` on Windows, which needs a shell to start.
+  execFileSync(process.execPath, ["node_modules/typescript/bin/tsc", "--outDir", build], {
+    stdio: "inherit",
+  });
   cli = join(build, "cli.js");
   fresh();
 });
@@ -40,14 +43,21 @@ const fresh = (): void => {
   const userHome = mkdtempSync(join(tmpdir(), "canny-user-"));
   mkdirSync(join(userHome, ".claude"));
   project = realpathSync(mkdtempSync(join(tmpdir(), "canny-project-")));
-  env = { PATH: process.env.PATH, HOME: userHome, CANNY_HOME: join(userHome, ".canny") };
+  // `os.homedir()` reads USERPROFILE on Windows and HOME everywhere else.
+  env = {
+    PATH: process.env.PATH,
+    HOME: userHome,
+    USERPROFILE: userHome,
+    CANNY_HOME: join(userHome, ".canny"),
+  };
 };
 
 describe("every command runs from a fresh process", () => {
   it("init writes hooks for the agent it finds, with a command that runs this CLI", () => {
     expect(canny(["init"])).toContain(`wrote ${join(project, ".claude", "settings.json")}`);
     const settings = readFileSync(join(project, ".claude", "settings.json"), "utf8");
-    expect(settings).toContain(`node \\"${cli}\\" hook --agent claude`);
+    // As JSON holds it: the quotes escaped, and on Windows every `\` of the path too.
+    expect(settings).toContain(JSON.stringify(`node "${cli}" hook --agent claude`));
     expect(settings).not.toContain("codex");
   });
 

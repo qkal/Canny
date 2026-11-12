@@ -1,0 +1,2 @@
+# A shell script checked out with CRLF, as git does by default on Windows, does not run.
+*.sh text eol=lf
