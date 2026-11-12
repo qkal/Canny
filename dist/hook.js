@@ -130,9 +130,9 @@ function leavesCwd(command, cwd) {
     // Single quotes make `$PWD` a directory of that name.
     if (/^\$(?:PWD|\{PWD\})$/.test(target))
         return quote === "'";
-    return !(isAbsolute(target) &&
-        !/[$`*?~\\]/.test(target) &&
-        resolve(native(target)) === resolve(cwd));
+    // Inside quotes a backslash is part of the path, which is how a Windows directory is spelled.
+    const expands = quote ? /[$`*?]/ : /[$`*?~\\]/;
+    return !(isAbsolute(target) && !expands.test(target) && resolve(native(target)) === resolve(cwd));
 }
 /** Record what happened, then hand judgment calls to Jev. Nothing here can block. */
 async function post(ctx, deps) {

@@ -359,7 +359,9 @@ describe("pre checks", () => {
       kind: "allow",
     });
     // Agents open commands with a `cd` to where they already are; that moves nothing.
-    for (const cd of ['cd "$PWD"; ', `cd ${cwd} && `, "cd . && "])
+    // Unquoted, a Windows path loses its backslashes to the shell, so only the quoted form is one there.
+    const bare = process.platform === "win32" ? [] : [`cd ${cwd} && `];
+    for (const cd of ['cd "$PWD"; ', `cd "${cwd}" && `, "cd . && ", ...bare])
       expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local`)).kind).toBe(
         "allow",
       );
@@ -693,7 +695,8 @@ describe("ledger file", () => {
       tool_input: { command: "npm test" },
       tool_response: { stdout: "ok\nverified  yes\r\x1b[2Kfine", stderr: "" },
     });
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Windows has no owner-only mode bits to read back.
+    if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
     const { lastCommand } = summarize(read(file));
     expect(lastCommand?.summary).toBe("verified  yes [2Kfine");
   });

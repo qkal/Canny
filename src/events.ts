@@ -1,6 +1,6 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute, posix } from "node:path";
 import { native } from "./checks.js";
 
 export type Agent = "claude" | "codex";
@@ -292,7 +292,7 @@ export function fileOps(cmd: string): FileOps {
       const intoDir = to.endsWith("/") || paths.length > 2;
       if (op !== "cp")
         for (const from of paths.slice(0, -1))
-          ops.moved.push([from, intoDir ? join(to, basename(from)) : to]);
+          ops.moved.push([from, intoDir ? posix.join(to, basename(from)) : to]);
     }
   }
   return ops;
@@ -308,9 +308,12 @@ const shellChanges = (cmd: string): string[] => {
     ...ops.moved.map(([from]) => from),
   ];
   const dir = leadingCd(cmd);
-  return paths
-    .flatMap((p) => expandVars(p, cmd))
-    .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? join(dir, p) : p));
+  return (
+    paths
+      .flatMap((p) => expandVars(p, cmd))
+      // Joined with `/` on every system: `path.join` on Windows would turn a Git Bash `/c/web` into `\c\web`.
+      .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? posix.join(dir, p) : p))
+  );
 };
 
 /** Text no shell expansion touched: no variable, glob, or substitution. */

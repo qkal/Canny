@@ -180,7 +180,8 @@ describe("merge", () => {
     symlinkSync(real, file);
     merge(file, ours);
     expect(lstatSync(file).isSymbolicLink()).toBe(true);
-    expect(statSync(real).mode & 0o777).toBe(0o600);
+    // Windows has no owner-only mode bits to read back.
+    if (process.platform !== "win32") expect(statSync(real).mode & 0o777).toBe(0o600);
     expect(Object.keys(JSON.parse(readFileSync(real, "utf8")) as object)).toEqual(["hooks"]);
     expect(readdirSync(dir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
   });
