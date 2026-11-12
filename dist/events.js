@@ -234,9 +234,11 @@ const shellChanges = (cmd) => {
         ...ops.moved.map(([from]) => from),
     ];
     const dir = leadingCd(cmd);
-    return paths
+    return (paths
         .flatMap((p) => expandVars(p, cmd))
-        .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? join(dir, p) : p));
+        // The shell reads a leading `~` as the home directory, not as a directory of that name here.
+        .map((p) => p.replace(/^~(?=[/\\]|$)/, homedir()))
+        .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? join(dir, p) : p)));
 };
 /** Text no shell expansion touched: no variable, glob, or substitution. */
 const LITERAL = /^[^$*?[`\\]+$/;

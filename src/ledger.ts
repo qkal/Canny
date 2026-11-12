@@ -4,17 +4,18 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   statSync,
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import {
   fingerprint,
+  inProject,
   inside,
   isIgnored,
-  isScratch,
   isVerify,
   plain,
+  projectRoot,
+  real,
   requiredBy,
   sha,
 } from "./checks.js";
@@ -74,9 +75,10 @@ export const rel = (cwd: string, p: string): string => plain(relative(cwd, resol
  * through `plain`, because the ledger is printed to the user's terminal and into agent messages.
  */
 export function toFact(event: Event, cwd: string, config: Config): Fact | null {
+  const root = projectRoot(cwd);
   const code = (paths: string[]): string[] =>
     paths
-      .filter((p) => !isScratch(p, cwd))
+      .filter((p) => inProject(p, cwd, root))
       .map((p) => rel(cwd, p))
       .filter((p) => !isIgnored(p, config));
   switch (event.kind) {
@@ -212,15 +214,6 @@ export function latestSession(cwd: string): { file: string; entries: Entry[] } |
   }
   return null;
 }
-
-/** The agent may report a path through a symlink (`/tmp` on macOS) that the shell resolves, or the reverse. */
-const real = (path: string): string => {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-};
 
 /** The hook fails open, so its crashes are only visible here. */
 export function hookErrors(): { count: number; last: string } | null {

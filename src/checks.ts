@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Config } from "./config.js";
 import type { FileChange } from "./events.js";
 
@@ -9,6 +9,9 @@ const VERIFY = [
   /\b(pytest|vitest|jest|mocha|ava|cypress|playwright test|go test|cargo test|swift test|xcodebuild test|gradlew? test|mvn test|dotnet test|rspec|phpunit|mix test|bun test|deno test|node --test|node --run test|npm test|pnpm test|yarn test|make test|just test|python -m pytest|python3? -m unittest|npm run test|pnpm run test|yarn run test|tox|nox)\b/,
   /\b(tsc|cargo build|go build|go vet|swift build|xcodebuild|gradlew? (build|assemble)|mvn (package|compile|verify)|dotnet build|npm run build|pnpm build|pnpm run build|yarn build|make build|just build|bun run build|vite build|next build|esbuild|webpack)\b/,
   /\b(eslint|oxlint|biome (check|lint)|prettier --check|ruff (check|format --check)|flake8|pylint|mypy|pyright|pyrefly|ty check|pnpm type-check|npm run lint|pnpm lint|pnpm run lint|yarn lint|golangci-lint|cargo clippy|swiftlint|swift-format lint|pre-commit run|just lint|just check|rubocop|shellcheck)\b/,
+  // A test file run directly: `python tests.py`, `node test.js`. The name has to say it is one,
+  // since `python manage.py` and `node test/fixtures/scrub.mjs` check nothing.
+  /\b(?:python[\d.]*|node|ruby)\s+(?:[^\s;|&]*[/\\])?(?:tests?|test_[\w.-]+|[\w.-]+[_.](?:tests?|spec))\.(?:py|rb|[cm]?[jt]sx?)\b/,
 ];
 
 // Config patterns are tested once per path and once per command segment, so each is compiled once.
@@ -158,11 +161,30 @@ export const inside = (parent: string, child: string): boolean => {
   return r !== ".." && !r.startsWith(".." + sep) && !isAbsolute(r);
 };
 
-/** Scratch space outside the project. A project that itself lives under a temp directory is not scratch. */
-export const isScratch = (path: string, cwd: string): boolean => {
-  const abs = resolve(cwd, path);
-  return /^(\/private)?\/(tmp|var\/tmp|var\/folders)\//.test(abs) && !inside(cwd, abs);
+/** Symlinks resolved as far as the path exists: the agent may name a file through one (`/tmp` on macOS) and report its cwd through the other. */
+export const real = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    const up = dirname(path);
+    return up === path ? path : join(real(up), basename(path));
+  }
 };
+
+/** The repository a session works in: the nearest directory at or above `cwd` that holds `.git`, or `cwd` when none does. The agent may be working in a subdirectory of it. */
+export const projectRoot = (cwd: string): string => {
+  for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, ".git"))) return real(dir);
+    if (dir === dirname(dir)) return real(resolve(cwd));
+  }
+};
+
+/**
+ * Whether a path is part of the session's project. A file outside it (`~/.zshrc`, a temp file,
+ * another checkout) is nothing the project's checks can vouch for, so it never holds the done-gate.
+ */
+export const inProject = (path: string, cwd: string, root = projectRoot(cwd)): boolean =>
+  inside(root, real(resolve(cwd, path)));
 
 /** Files whose edits never need a passing check: docs, images, lockfiles, logs, installed packages, and anything in `config.ignore`. */
 export function isIgnored(path: string, config: Config): boolean {
