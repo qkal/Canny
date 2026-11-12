@@ -102,6 +102,21 @@ describe("stop gate", () => {
     expect((await stop()).kind).toBe("block");
   });
 
+  it.each([
+    [0, "allow"],
+    [1, "block"],
+  ])("after python3 unittest exits %s -> %s", async (exit, kind) => {
+    const command = "python3 -m unittest discover -s tests";
+    await edit();
+    await ran(command, exit);
+    expect((await stop()).kind).toBe(kind);
+    expect(summarize(read(file)).lastCommand).toMatchObject({
+      command,
+      exitCode: exit,
+      verify: true,
+    });
+  });
+
   it("names the failing command in the block reason", async () => {
     await edit();
     await ran("pnpm test", 1);
@@ -538,6 +553,7 @@ describe("pipefail rewrite", () => {
 
   it.each([
     ["npm test 2>&1 | tail -20", "set -o pipefail && npm test 2>&1 | tail -20"],
+    ["python3 -m unittest | tail -20", "set -o pipefail && python3 -m unittest | tail -20"],
     ["cd web && pnpm vitest run | tail -n 40", "set -o pipefail && cd web && pnpm vitest run | tail -n 40"], // prettier-ignore
     // `head` and `grep -q` quit early, and SIGPIPE would fail a passing check.
     ["npm test | head -5", null],

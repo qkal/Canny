@@ -63,6 +63,10 @@ describe("isVerify", () => {
     ["tsc --version", false],
     ["git diff -- vitest.config.ts", false],
     ["cd web && uv run pytest -q", true],
+    ["python -m unittest discover -s tests", true],
+    ["python3 -m unittest discover -s tests", true],
+    ["python -m pytest", true],
+    ["python3 -m pytest", true],
     ["pnpm type-check", true],
     ["cargo build --release", true],
     ["ruff check .", true],
@@ -82,6 +86,7 @@ describe("isVerify", () => {
     "npm test",
     "npx vitest run",
     "uv run pytest -q",
+    "python3 -m unittest discover -s tests",
     "go test ./...",
     "cargo test",
     "tsc --noEmit",
@@ -130,10 +135,13 @@ describe("isVerify", () => {
   it("counts every check inside a wrapper that passes its exit status on", () =>
     expect(all(keeps).filter((cmd) => !isVerify(cmd, {}))).toEqual([]));
 
-  it("uses config.verify instead of the defaults when given", () => {
-    expect(isVerify("pnpm test", { verify: ["^just check$"] })).toBe(false);
-    expect(isVerify("just check", { verify: ["^just check$"] })).toBe(true);
-  });
+  it.each(["pnpm test", "python3 -m unittest discover -s tests"])(
+    "uses config.verify instead of the defaults for %s",
+    (command) => {
+      expect(isVerify(command, { verify: ["^just check$"] })).toBe(false);
+      expect(isVerify("just check", { verify: ["^just check$"] })).toBe(true);
+    },
+  );
 });
 
 describe("isIgnored", () => {
