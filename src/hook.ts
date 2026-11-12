@@ -289,7 +289,7 @@ function blockReason(s: Summary, config: Config): string {
 const counts = (config: Config): string =>
   config.verify?.length
     ? ` Commands that count: ${config.verify.map((v) => `\`${v}\``).join(", ")}.`
-    : " A test, build, lint, or type-check command counts, run so its own exit status is the result: a pipe into `tail`, `|| true`, or a trailing `; echo` hides it.";
+    : " A test, build, lint, or type-check command counts, run so its own exit status is the result: a pipe into `tail`, `|| true`, or a trailing `; echo` hides it, and a redirect into a file (`> out.log 2>&1`) does not.";
 
 function describe(ctx: Ctx, c: FileChange, d: TestDamage, by = "edit"): string {
   const file = rel(ctx.cwd, c.path);

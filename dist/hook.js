@@ -239,7 +239,7 @@ function blockReason(s, config) {
 }
 const counts = (config) => config.verify?.length
     ? ` Commands that count: ${config.verify.map((v) => `\`${v}\``).join(", ")}.`
-    : " A test, build, lint, or type-check command counts, run so its own exit status is the result: a pipe into `tail`, `|| true`, or a trailing `; echo` hides it.";
+    : " A test, build, lint, or type-check command counts, run so its own exit status is the result: a pipe into `tail`, `|| true`, or a trailing `; echo` hides it, and a redirect into a file (`> out.log 2>&1`) does not.";
 function describe(ctx, c, d, by = "edit") {
     const file = rel(ctx.cwd, c.path);
     const what = d.deleted

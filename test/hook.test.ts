@@ -219,9 +219,24 @@ describe("shell file operations in the ledger", () => {
     ["git checkout -- src/a.ts", "block"],
     ["rm -rf node_modules /tmp/canny-scratch.json /var/tmp/x.json", "allow"],
     ["rm ../../../../../../../../tmp/canny-scratch.ts", "allow"],
+    // Nothing a project check runs can vouch for a file outside the project.
+    ["echo key > ~/.tool_key", "allow"],
+    ["cp ~/.claude/settings.json ~/.claude/settings.json.bak-$(date +%Y%m%d)", "allow"],
+    ["echo x > ../sibling/a.ts", "allow"],
   ])("%s then stop -> %s", async (command, kind) => {
     await ran(command);
     expect((await stop()).kind).toBe(kind);
+  });
+  it("allows after an edit to a file outside the project", async () => {
+    await edit("../.claude/settings.json");
+    expect(await stop()).toEqual({ kind: "allow" });
+  });
+  it("counts an edit elsewhere in the repository when the agent works in a subdirectory", async () => {
+    mkdirSync(join(cwd, ".git"));
+    mkdirSync(join(cwd, "web"));
+    cwd = join(cwd, "web");
+    await edit("../api/a.ts");
+    expect((await stop()).kind).toBe("block");
   });
   it("counts files a failed command changed before it failed", async () => {
     await ran("rm src/a.ts; false", 1);

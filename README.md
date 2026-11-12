@@ -144,7 +144,7 @@ The rewrite keeps the output the agent asked for and makes the check's own exit 
 
 At every Stop, in this order:
 
-1. No code file was edited this session: allow. Docs, images, and lockfiles do not count as code.
+1. No code file was edited this session: allow. Docs, images, and lockfiles do not count as code, and neither does a file outside the project (the nearest directory at or above the session's that holds `.git`).
 2. A check exited 0 after the last code edit, and so did a check matching every `require` pattern when the project sets any: allow.
 3. This is already a re-run after a block and nothing new has happened since: allow, and warn the user that the agent finished without a passing check. Set `"strict": true` to skip this step and keep blocking; Claude Code caps consecutive blocks at eight.
 4. Jev is available and at least 90 percent sure the message is _not_ a "done" claim (the agent is asking a question, or reporting being stuck): allow.
@@ -196,7 +196,7 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 }
 ```
 
-- `verify`: regexes for commands that count as a check. Replaces the built-in list of about eighty: pytest, vitest, jest, go test, cargo test, swift test, node --test, tsc, eslint, ruff, pre-commit, and so on. Quoted strings are stripped before matching, so a commit message that mentions pytest does not count. The check's own exit status has to be the result: followed by `|| true`, followed by `; echo done`, or piped into anything without `pipefail`, it does not count. A Bash check piped only into `tail` is run with `pipefail` added, so it counts.
+- `verify`: regexes for commands that count as a check. Replaces the built-in list of about eighty: pytest, vitest, jest, go test, cargo test, swift test, node --test, tsc, eslint, ruff, pre-commit, and so on. A test file run directly (`python tests.py`, `node test.js`) is on it when its name says it is a test. Quoted strings are stripped before matching, so a commit message that mentions pytest does not count. The check's own exit status has to be the result: followed by `|| true`, followed by `; echo done`, or piped into anything without `pipefail`, it does not count. A Bash check piped only into `tail` is run with `pipefail` added, so it counts.
 - `require`: regexes that each have to match a passing check after the last code edit. Without it, any one check opens the done-gate, so a lint run after a logic change is enough. Each pattern is matched against a command that already counts as a check, so it cannot add to what counts: a command off the built-in list goes in `verify` as well, and when `verify` is set, every required command has to be on it, as `uv run pytest` is above. One command can satisfy several patterns: `pnpm lint && pnpm test` satisfies one for each. `canny status` shows how many have passed.
 - `ignore`: regexes for edited paths that never need a check. Adds to docs, images, and lockfiles. Edits to these paths are also never sent to Jev.
 - `rules`: the rules Jev is asked about. Replaces the automatic extraction of instruction-like bullets from `CLAUDE.md`, `AGENTS.md`, and `.claude/CLAUDE.md`, which keeps at most 24, strongest wording first. Because it replaces that extraction, it waits for `canny trust`.
