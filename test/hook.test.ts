@@ -243,6 +243,20 @@ describe("pre checks", () => {
     expect(await run(input, offline, { allow: ["secrets"] })).toEqual({ kind: "allow" });
   });
 
+  it("reads Windows separators in the paths an edit names", async () => {
+    const write = (path: string, content: string) =>
+      run({
+        hook_event_name: "PreToolUse",
+        tool_name: "Write",
+        tool_input: { file_path: path, content },
+      });
+    expect((await write("tests\\helper.js", "test.skip('a', f)")).kind).toBe("ask");
+    expect(await write("config\\.env", "KEY=AKIAIOSFODNN7EXAMPLE")).toMatchObject({
+      kind: "deny",
+      message: expect.stringContaining("once git ignores the file"),
+    });
+  });
+
   const bash = (command: string, config: Config = {}) =>
     run(
       { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },

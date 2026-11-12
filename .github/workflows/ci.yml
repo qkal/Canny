@@ -52,6 +52,9 @@ jobs:
           # Temp directories sit behind symlinks on macOS, which the scratch-path and session lookups handle.
           - os: macos-latest
             node: 24
+          # Paths arrive with `\` and a drive letter, and `path.relative` answers with `\`.
+          - os: windows-latest
+            node: 24
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

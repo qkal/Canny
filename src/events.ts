@@ -1,6 +1,7 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
+import { native } from "./checks.js";
 
 export type Agent = "claude" | "codex";
 export type Phase = "start" | "pre" | "post" | "stop" | "other";
@@ -72,7 +73,7 @@ export function normalize(raw: unknown, agent?: Agent): Ctx {
     phase,
     hookEvent,
     session: str(input.session_id) || "unknown",
-    cwd: str(input.cwd) || process.cwd(),
+    cwd: native(str(input.cwd)) || process.cwd(),
     tool,
     event: { kind: "other" },
   };

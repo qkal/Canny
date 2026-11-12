@@ -1,6 +1,7 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
+import { native } from "./checks.js";
 /** Whether untrusted JSON is a plain object. `null` and arrays are not. */
 export const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const obj = (v) => (isObj(v) ? v : {});
@@ -28,7 +29,7 @@ export function normalize(raw, agent) {
         phase,
         hookEvent,
         session: str(input.session_id) || "unknown",
-        cwd: str(input.cwd) || process.cwd(),
+        cwd: native(str(input.cwd)) || process.cwd(),
         tool,
         event: { kind: "other" },
     };

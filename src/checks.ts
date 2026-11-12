@@ -149,6 +149,19 @@ export function projectCheck(cwd: string): string | null {
   return null;
 }
 
+/**
+ * A path as the patterns here read it, with `/` between its parts. Windows agents send `C:\…`, and
+ * `path.relative` answers with `\` there even for a path that came in with `/`.
+ */
+export const slash = (path: string): string => path.replaceAll("\\", "/");
+
+/**
+ * A path as Node reads it. Git Bash spells `C:\Users` as `/c/Users`, which `resolve` on Windows
+ * takes for `C:\c\Users`. Elsewhere `/c/Users` is a real directory and stays as it is.
+ */
+export const native = (path: string, windows = sep === "\\"): string =>
+  windows ? path.replace(/^\/([a-zA-Z])(?=\/|$)/, "$1:") : path;
+
 const IGNORE =
   /(^|\/)docs?\/|(^|\/)(node_modules|\.venv|__pycache__|coverage|\.cache|\.git)(\/|$)|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
 
@@ -166,12 +179,12 @@ export const isScratch = (path: string, cwd: string): boolean => {
 
 /** Files whose edits never need a passing check: docs, images, lockfiles, logs, installed packages, and anything in `config.ignore`. */
 export function isIgnored(path: string, config: Config): boolean {
-  return IGNORE.test(path) || userIgnored(path, config);
+  return IGNORE.test(slash(path)) || userIgnored(path, config);
 }
 
 /** Paths the user listed in `config.ignore`: besides needing no check, their edits are never sent to Jev. */
 export const userIgnored = (path: string, config: Config): boolean =>
-  (config.ignore ?? []).some((p) => safeRegex(p)?.test(path));
+  (config.ignore ?? []).some((p) => safeRegex(p)?.test(slash(path)));
 
 const SECRETS: [string, RegExp][] = [
   ["AWS access key", /\bAKIA[0-9A-Z]{16}\b/],
@@ -192,11 +205,12 @@ const ENV_TEMPLATE = /\.(example|sample|template|dist)$/;
 
 /** A `.env` file git ignores is where keys belong. Templates are committed, so they never qualify. */
 export function isPrivateEnv(path: string, cwd: string): boolean {
-  if (!ENV_FILE.test(path) || ENV_TEMPLATE.test(path)) return false;
+  if (!ENV_FILE.test(slash(path)) || ENV_TEMPLATE.test(path)) return false;
+  const file = resolve(cwd, native(path));
   // A write through a symlink lands in its target, which may be a tracked file.
-  if (lstatSync(resolve(cwd, path), { throwIfNoEntry: false })?.isSymbolicLink()) return false;
+  if (lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
   try {
-    execFileSync("git", ["check-ignore", "-q", path], { cwd, stdio: "ignore", timeout: 2000 });
+    execFileSync("git", ["check-ignore", "-q", file], { cwd, stdio: "ignore", timeout: 2000 });
     return true;
   } catch {
     return false;
@@ -223,7 +237,7 @@ export const plain = (text: string): string => text.replace(ANSI, "").replace(/\
 
 /** A bare directory name such as `tests` counts, so `rm -rf tests` is seen. */
 export const isTestFile = (path: string): boolean =>
-  TEST_PATH.test(path) || TEST_PATH.test(path + "/");
+  TEST_PATH.test(slash(path)) || TEST_PATH.test(slash(path) + "/");
 
 export interface TestDamage {
   removed: number;
@@ -239,7 +253,7 @@ export function testDamage(change: FileChange, cwd: string): TestDamage | null {
   if (change.deleted) return { removed: 0, skipped: 0, deleted: true };
   let removed = change.removed;
   if (change.wholeFile) {
-    const file = resolve(cwd, change.path);
+    const file = resolve(cwd, native(change.path));
     removed = existsSync(file) ? readFileSync(file, "utf8") : "";
   }
   const damage = {
