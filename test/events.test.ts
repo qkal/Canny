@@ -266,7 +266,13 @@ describe("writeTargets", () => {
     ['sed -i "" s/a/b/ "$f"', []],
     ["cp a.ts $DST/a.ts", []],
     ["for f in *.html; do sed -i '' s/a/b/ \"$f\"; done", []],
-    // A substitution is one word and names no file Canny can know (#22): not `+%Y%m%d)`.
+    // A variable set to a literal by its own statement stands for that value.
+    ["SRC=src/a.ts; echo x > $SRC", ["src/a.ts"]],
+    ['export OUT="dist" && cp a.ts $OUT/a.ts', ["dist/a.ts"]],
+    // A prefix assignment is set after `$OUT` is expanded, and a substitution is only known at run time.
+    ["OUT=dist cp a.ts $OUT/a.ts", []],
+    ['DST=$(mktemp -d); cp a.ts "$DST/a.ts"', []],
+    // A substitution is one word and names no file Canny can know: not `+%Y%m%d)`.
     ["cp ~/.claude/settings.json ~/.claude/settings.json.bak-$(date +%Y%m%d)", []],
     ['cp a.ts "b-$(date +%s).ts"', []],
     ["cp a.ts b-`date`.ts", []],
@@ -275,6 +281,12 @@ describe("writeTargets", () => {
     ['cd "/repo/web"; sed -i "" s/a/b/ x.html', ["/repo/web/x.html"]],
     ["cd sub && echo hi > note.ts", ["sub/note.ts"]],
     ["cd /repo/web; cp a.ts /abs/b.ts", ["/abs/b.ts"]],
+    // A home path is not relative to the `cd`, and after a second `cd` the directory is not known.
+    ["cd web && echo x > ~/notes.ts", ["~/notes.ts"]],
+    ["cd web && pnpm test && cd .. && echo x > a.ts", ["a.ts"]],
+    // A quote escaped outside a string opens nothing, so the `rm` between two of them still runs.
+    ["echo it\\'s; rm tests/a.test.ts; echo that\\'s", ["tests/a.test.ts"]],
+    ['echo \\"a\\"; rm tests/x.test.ts; echo "b"', ["tests/x.test.ts"]],
   ])("changedFiles %j -> %j", (cmd, files) => expect(changed(cmd)).toEqual(files));
 });
 

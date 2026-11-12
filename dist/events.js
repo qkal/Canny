@@ -173,15 +173,18 @@ const unquote = (t) => t.replace(/^["']|["']$/g, "");
 const QUOTED = String.raw `"(?:\\.|[^"\\])*"|'[^']*'`;
 /**
  * Shell word splitting, kept in one place so every argument list splits the same way. A word may
- * hold quotes, a `$(…)` substitution, or backticks: `b-$(date +%s).ts` is one word, not two (#22).
+ * hold quotes, a `$(…)` substitution, or backticks: `b-$(date +%s).ts` is one word, not two.
  */
 // Safe to share: `String.prototype.match` with a `/g` regex resets `lastIndex`. Do not use with `.test`.
 const TOKENS = new RegExp(String.raw `(?:${QUOTED}|\$\((?:[^()]|\([^()]*\))*\)|\`[^\`]*\`|[^\s"'\`]|["'\`])+`, "g");
 /**
  * Quoted text blanked to `x`, quotes kept and length unchanged, so a match found in it indexes the
  * original. A command quoted for `ssh` or a pattern for `grep` (`"cp |mv "`) runs nothing here.
+ * A quote escaped outside a string opens none: in `echo it\'s; rm a.ts; echo that\'s` the `rm` runs.
  */
-const maskQuotes = (cmd) => cmd.replace(new RegExp(QUOTED, "g"), (q) => q[0] + "x".repeat(q.length - 2) + q[0]);
+const maskQuotes = (cmd) => cmd.replace(new RegExp(String.raw `\\[\s\S]|${QUOTED}`, "g"), (q) => q[0] === "\\" ? q : q[0] + "x".repeat(q.length - 2) + q[0]);
+/** A change of directory at command position. Two of them, and where the command ends up is not modelled. */
+const MOVES = /(?:^|[;&|(\n])\s*(?:cd|pushd|popd)\b/g;
 /** Files a shell command copies, moves, deletes, or restores. No Write or Edit hook fires for these. */
 // ponytail: reads rm, cp, mv and git at command position, after `then`/`do`/`else`, or by path; `find -exec rm`, `xargs rm`, and a second heredoc on one command line are not seen
 export function fileOps(cmd) {
@@ -233,15 +236,16 @@ const shellChanges = (cmd) => {
     const dir = leadingCd(cmd);
     return paths
         .flatMap((p) => expandVars(p, cmd))
-        .map((p) => (dir && !isAbsolute(p) ? join(dir, p) : p));
+        .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? join(dir, p) : p));
 };
 /** Text no shell expansion touched: no variable, glob, or substitution. */
 const LITERAL = /^[^$*?[`\\]+$/;
 /**
- * A path holding `$name` is the files a literal `for name in …` lists. A variable the command does
- * not define this way names no file Canny can point at, so it names none: `$f`, `$DST/a.ts`, `\$B`.
+ * A path holding `$name` is the files a literal `for name in …` lists, or the literal a `name=…`
+ * statement sets. A variable the command does not define this way names no file Canny can point
+ * at, so it names none: `$f`, `$DST/a.ts`, `\$B`.
  */
-// ponytail: only `for` lists; a variable set by `VAR=…`, `read`, or the environment drops the path
+// ponytail: the first `for` list or assignment wins; a variable set twice, by `read`, or by the environment drops or misnames the path
 function expandVars(path, cmd) {
     if (!/[$`]/.test(path))
         return [path];
@@ -250,19 +254,22 @@ function expandVars(path, cmd) {
     if (!v || /\$\(|`/.test(path))
         return [];
     const name = v[1] ?? v[2];
-    const loop = new RegExp(String.raw `\bfor\s+${name}\s+in\s+([^;\n]*?)\s*(?:;|\n)\s*do\b`, "d").exec(maskQuotes(cmd));
-    if (!loop)
+    const masked = maskQuotes(cmd);
+    const at = (new RegExp(String.raw `\bfor\s+${name}\s+in\s+([^;\n]*?)\s*(?:;|\n)\s*do\b`, "d").exec(masked) ??
+        // Only a statement of its own: in `OUT=dist cp a.ts $OUT/a.ts` the shell expands `$OUT` first.
+        new RegExp(String.raw `(?:^|[;&(\n]|\bexport\s)\s*${name}=(\S*?)\s*(?:;|&&|\n)`, "d").exec(masked))?.indices[1];
+    if (!at)
         return [];
-    const items = (cmd.slice(...loop.indices[1]).match(TOKENS) ?? []).map(unquote);
+    const items = (cmd.slice(...at).match(TOKENS) ?? []).map(unquote);
     if (!items.length || !items.every((i) => LITERAL.test(i)))
         return [];
     return items.flatMap((i) => expandVars(path.replace(v[0], i), cmd));
 }
 /** Where relative paths land when the command starts by changing directory: `cd web; sed -i … x.html`. */
-// ponytail: only a leading `cd`; one later in the command is not followed
+// ponytail: only a leading `cd`; with a second one the paths are left as written rather than guessed
 function leadingCd(cmd) {
     const m = new RegExp(String.raw `^\s*cd\s+(${QUOTED}|[^\s;&|]+)\s*(?:;|&&|\n)`).exec(cmd);
-    if (!m)
+    if (!m || (maskQuotes(cmd).match(MOVES) ?? []).length > 1)
         return null;
     const dir = unquote(m[1]).replace(/^~(?=\/|$)/, homedir());
     return LITERAL.test(dir) ? dir : null;
