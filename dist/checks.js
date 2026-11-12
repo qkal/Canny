@@ -144,6 +144,18 @@ export function projectCheck(cwd) {
         return "go test ./...";
     return null;
 }
+/**
+ * A path as the patterns here read it, with `/` between its parts. Windows agents send `C:\…`, and
+ * `path.relative` answers with `\` there even for a path that came in with `/`.
+ */
+export const slash = (path) => path.replaceAll("\\", "/");
+/**
+ * A path as Node reads it. Git Bash spells `C:\Users` as `/c/Users`, which `resolve` on Windows
+ * takes for `C:\c\Users`. Elsewhere `/c/Users` is a real directory and stays as it is.
+ */
+export const native = (path, windows = sep === "\\") => 
+// `c:/`, not `c:`: a bare drive is the directory the process is in on that drive, not its root.
+windows ? path.replace(/^\/([a-zA-Z])(?:\/|$)/, "$1:/") : path;
 const IGNORE = /(^|\/)docs?\/|(^|\/)(node_modules|\.venv|__pycache__|coverage|\.cache|\.git)(\/|$)|\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|ico|webp|lock|log)$/i;
 /** One directory is the other, or sits inside it. `relative` gets the filesystem root and Windows drives right, which string prefixes do not. */
 export const inside = (parent, child) => {
@@ -175,13 +187,13 @@ export const projectRoot = (cwd) => {
  * Whether a path is part of the session's project. A file outside it (`~/.zshrc`, a temp file,
  * another checkout) is nothing the project's checks can vouch for, so it never holds the done-gate.
  */
-export const inProject = (path, cwd, root = projectRoot(cwd)) => inside(root, real(resolve(cwd, path)));
+export const inProject = (path, cwd, root = projectRoot(cwd)) => inside(root, real(resolve(cwd, native(path))));
 /** Files whose edits never need a passing check: docs, images, lockfiles, logs, installed packages, and anything in `config.ignore`. */
 export function isIgnored(path, config) {
-    return IGNORE.test(path) || userIgnored(path, config);
+    return IGNORE.test(slash(path)) || userIgnored(path, config);
 }
 /** Paths the user listed in `config.ignore`: besides needing no check, their edits are never sent to Jev. */
-export const userIgnored = (path, config) => (config.ignore ?? []).some((p) => safeRegex(p)?.test(path));
+export const userIgnored = (path, config) => (config.ignore ?? []).some((p) => safeRegex(p)?.test(slash(path)));
 const SECRETS = [
     ["AWS access key", /\bAKIA[0-9A-Z]{16}\b/],
     ["GitHub token", /\b(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})\b/],
@@ -199,13 +211,14 @@ const ENV_FILE = /(^|\/)\.env(\.[^/]*)?$/;
 const ENV_TEMPLATE = /\.(example|sample|template|dist)$/;
 /** A `.env` file git ignores is where keys belong. Templates are committed, so they never qualify. */
 export function isPrivateEnv(path, cwd) {
-    if (!ENV_FILE.test(path) || ENV_TEMPLATE.test(path))
+    if (!ENV_FILE.test(slash(path)) || ENV_TEMPLATE.test(path))
         return false;
+    const file = resolve(cwd, native(path));
     // A write through a symlink lands in its target, which may be a tracked file.
-    if (lstatSync(resolve(cwd, path), { throwIfNoEntry: false })?.isSymbolicLink())
+    if (lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink())
         return false;
     try {
-        execFileSync("git", ["check-ignore", "-q", path], { cwd, stdio: "ignore", timeout: 2000 });
+        execFileSync("git", ["check-ignore", "-q", file], { cwd, stdio: "ignore", timeout: 2000 });
         return true;
     }
     catch {
@@ -224,7 +237,7 @@ const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
 /** Text safe to store and print: command output can carry escape sequences that redraw the terminal. */
 export const plain = (text) => text.replace(ANSI, "").replace(/\p{Cc}+/gu, " ");
 /** A bare directory name such as `tests` counts, so `rm -rf tests` is seen. */
-export const isTestFile = (path) => TEST_PATH.test(path) || TEST_PATH.test(path + "/");
+export const isTestFile = (path) => TEST_PATH.test(slash(path)) || TEST_PATH.test(slash(path) + "/");
 const count = (re, text) => (text.match(re) ?? []).length;
 /** Test cases removed, skip or focus markers added, or the whole test file deleted. Null when nothing is damaged. */
 export function testDamage(change, cwd) {
@@ -234,7 +247,7 @@ export function testDamage(change, cwd) {
         return { removed: 0, skipped: 0, deleted: true };
     let removed = change.removed;
     if (change.wholeFile) {
-        const file = resolve(cwd, change.path);
+        const file = resolve(cwd, native(change.path));
         removed = existsSync(file) ? readFileSync(file, "utf8") : "";
     }
     const damage = {

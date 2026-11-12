@@ -1,14 +1,17 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fingerprint, inProject, inside, isIgnored, isVerify, plain, projectRoot, real, requiredBy, sha, } from "./checks.js";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { fingerprint, inProject, inside, isIgnored, isVerify, native, plain, projectRoot, real, requiredBy, sha, } from "./checks.js";
 import { errorLog, home } from "./config.js";
 export const sessionsDir = () => join(home(), "sessions");
 export const sessionFile = (agent, session) => join(sessionsDir(), `${agent}-${session.replace(/[^\w.-]/g, "_")}.jsonl`);
 /**
  * Paths are kept relative to the session cwd so ledgers read the same on any machine, and in one
- * spelling: `./src/a.ts` and `lib/../src/a.ts` are `src/a.ts`, so an `ignore` pattern matches all three.
+ * spelling: `./src/a.ts`, `lib/../src/a.ts`, and `src\a.ts` on Windows are `src/a.ts`, so an
+ * `ignore` pattern matches them all.
  */
-export const rel = (cwd, p) => plain(relative(cwd, resolve(cwd, p)) || p);
+export const rel = (cwd, p) => plain(relative(cwd, resolve(cwd, native(p)))
+    .split(sep)
+    .join("/") || p);
 /**
  * The part of an event worth keeping: paths and outcomes, never file contents. Every string goes
  * through `plain`, because the ledger is printed to the user's terminal and into agent messages.

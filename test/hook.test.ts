@@ -258,6 +258,20 @@ describe("pre checks", () => {
     expect(await run(input, offline, { allow: ["secrets"] })).toEqual({ kind: "allow" });
   });
 
+  it("reads Windows separators in the paths an edit names", async () => {
+    const write = (path: string, content: string) =>
+      run({
+        hook_event_name: "PreToolUse",
+        tool_name: "Write",
+        tool_input: { file_path: path, content },
+      });
+    expect((await write("tests\\helper.js", "test.skip('a', f)")).kind).toBe("ask");
+    expect(await write("config\\.env", "KEY=AKIAIOSFODNN7EXAMPLE")).toMatchObject({
+      kind: "deny",
+      message: expect.stringContaining("once git ignores the file"),
+    });
+  });
+
   const bash = (command: string, config: Config = {}) =>
     run(
       { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
@@ -360,7 +374,9 @@ describe("pre checks", () => {
       kind: "allow",
     });
     // Agents open commands with a `cd` to where they already are; that moves nothing.
-    for (const cd of ['cd "$PWD"; ', `cd ${cwd} && `, "cd . && "])
+    // Unquoted, a Windows path loses its backslashes to the shell, so only the quoted form is one there.
+    const bare = process.platform === "win32" ? [] : [`cd ${cwd} && `];
+    for (const cd of ['cd "$PWD"; ', `cd "${cwd}" && `, "cd . && ", ...bare])
       expect((await bash(`${cd}echo AWS_KEY=AKIAIOSFODNN7EXAMPLE > .env.local`)).kind).toBe(
         "allow",
       );
@@ -694,7 +710,8 @@ describe("ledger file", () => {
       tool_input: { command: "npm test" },
       tool_response: { stdout: "ok\nverified  yes\r\x1b[2Kfine", stderr: "" },
     });
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Windows has no owner-only mode bits to read back.
+    if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
     const { lastCommand } = summarize(read(file));
     expect(lastCommand?.summary).toBe("verified  yes [2Kfine");
   });

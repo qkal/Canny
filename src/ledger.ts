@@ -6,13 +6,14 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   fingerprint,
   inProject,
   inside,
   isIgnored,
   isVerify,
+  native,
   plain,
   projectRoot,
   real,
@@ -66,9 +67,15 @@ export const sessionFile = (agent: Agent, session: string): string =>
 
 /**
  * Paths are kept relative to the session cwd so ledgers read the same on any machine, and in one
- * spelling: `./src/a.ts` and `lib/../src/a.ts` are `src/a.ts`, so an `ignore` pattern matches all three.
+ * spelling: `./src/a.ts`, `lib/../src/a.ts`, and `src\a.ts` on Windows are `src/a.ts`, so an
+ * `ignore` pattern matches them all.
  */
-export const rel = (cwd: string, p: string): string => plain(relative(cwd, resolve(cwd, p)) || p);
+export const rel = (cwd: string, p: string): string =>
+  plain(
+    relative(cwd, resolve(cwd, native(p)))
+      .split(sep)
+      .join("/") || p,
+  );
 
 /**
  * The part of an event worth keeping: paths and outcomes, never file contents. Every string goes

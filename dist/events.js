@@ -1,6 +1,7 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute, posix } from "node:path";
+import { native } from "./checks.js";
 /** Whether untrusted JSON is a plain object. `null` and arrays are not. */
 export const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const obj = (v) => (isObj(v) ? v : {});
@@ -28,7 +29,7 @@ export function normalize(raw, agent) {
         phase,
         hookEvent,
         session: str(input.session_id) || "unknown",
-        cwd: str(input.cwd) || process.cwd(),
+        cwd: native(str(input.cwd)) || process.cwd(),
         tool,
         event: { kind: "other" },
     };
@@ -168,6 +169,12 @@ const NOT_A_FILE = /^(&\d*|\/dev\/(null|stdout|stderr|tty)|-)$/;
 const HEREDOC = /<<-?\s*(?:\\|(["']?))([^\s"'<>|;&\\]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g;
 /** Heredoc bodies hold text, not shell: `> quote` in markdown, `rm x` in a script being written. */
 const withoutHeredocs = (cmd) => cmd.replace(HEREDOC, (m) => m.split("\n", 1)[0]);
+/**
+ * A path under a directory, both as shell text spells them. Joined with `/` on every system:
+ * `path.join` on Windows would turn a Git Bash `/c/web` into `\c\web`. The `//` of a network
+ * path is kept, which `posix.join` would fold into one.
+ */
+const under = (dir, path) => (dir.startsWith("//") ? "/" : "") + posix.join(dir, path);
 /** A shell word as the path it names: quotes dropped, and a leading `~` read as the home directory unless it was quoted. */
 const unquote = (t) => /^["']/.test(t) ? t.replace(/^["']|["']$/g, "") : t.replace(/^~(?=[/\\]|$)/, homedir());
 /** A quoted shell string. Inside double quotes `\"` is text, not the end: `echo "{\"a\": 1};" > f`. */
@@ -220,7 +227,7 @@ export function fileOps(cmd) {
             const intoDir = to.endsWith("/") || paths.length > 2;
             if (op !== "cp")
                 for (const from of paths.slice(0, -1))
-                    ops.moved.push([from, intoDir ? join(to, basename(from)) : to]);
+                    ops.moved.push([from, intoDir ? under(to, basename(from)) : to]);
         }
     }
     return ops;
@@ -237,7 +244,7 @@ const shellChanges = (cmd) => {
     const dir = leadingCd(cmd);
     return paths
         .flatMap((p) => expandVars(p, cmd))
-        .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? join(dir, p) : p));
+        .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? under(dir, p) : p));
 };
 /** Text no shell expansion touched: no variable, glob, or substitution. */
 const LITERAL = /^[^$*?[`\\]+$/;

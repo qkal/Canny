@@ -7,7 +7,9 @@ import {
   fingerprint,
   inProject,
   isIgnored,
+  isTestFile,
   isVerify,
+  native,
   requiredBy,
   projectCheck,
   testDamage,
@@ -201,9 +203,39 @@ describe("isIgnored", () => {
     ["docs/guide.txt", true],
     ["pnpm-lock.yaml", false],
     ["src/a.ts", false],
+    // Windows separators: `path.relative` answers with them even when the agent sent `/`.
+    ["docs\\guide.ts", true],
+    ["node_modules\\pkg\\i.js", true],
+    ["src\\a.ts", false],
   ])("%s -> %s", (p, v) => expect(isIgnored(p, {})).toBe(v));
-  it("adds config.ignore patterns", () =>
-    expect(isIgnored("gen/x.ts", { ignore: ["^gen/"] })).toBe(true));
+  it("adds config.ignore patterns", () => {
+    expect(isIgnored("gen/x.ts", { ignore: ["^gen/"] })).toBe(true);
+    expect(isIgnored("gen\\x.ts", { ignore: ["^gen/"] })).toBe(true);
+  });
+});
+
+describe("isTestFile", () => {
+  it.each([
+    ["tests/helper.js", true],
+    ["tests\\helper.js", true],
+    ["C:\\repo\\__tests__\\a.js", true],
+    ["src\\a.test.ts", true],
+    ["tests", true],
+    ["src\\helper.js", false],
+  ])("%s -> %s", (p, v) => expect(isTestFile(p)).toBe(v));
+});
+
+describe("native", () => {
+  it.each([
+    ["/c/Users/me/proj", "c:/Users/me/proj"],
+    ["/c", "c:/"],
+    ["/c/", "c:/"],
+    ["/code/proj", "/code/proj"],
+    ["C:\\Users\\me", "C:\\Users\\me"],
+    ["src/a.ts", "src/a.ts"],
+  ])("reads the Git Bash path %s as %s on Windows", (p, out) => expect(native(p, true)).toBe(out));
+  it("leaves /c/Users alone where it is a real directory", () =>
+    expect(native("/c/Users/me", false)).toBe("/c/Users/me"));
 });
 
 describe("testDamage", () => {

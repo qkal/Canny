@@ -4,9 +4,11 @@ import {
   isPrivateEnv,
   isTestFile,
   isVerify,
+  native,
   plain,
   projectCheck,
   required,
+  slash,
   testDamage,
   userIgnored,
   withPipefail,
@@ -160,7 +162,9 @@ function leavesCwd(command: string, cwd: string): boolean {
   if (target === "." || target === "./") return false;
   // Single quotes make `$PWD` a directory of that name.
   if (/^\$(?:PWD|\{PWD\})$/.test(target)) return quote === "'";
-  return !(isAbsolute(target) && !/[$`*?~\\]/.test(target) && resolve(target) === resolve(cwd));
+  // Inside quotes a backslash is part of the path, which is how a Windows directory is spelled.
+  const expands = quote ? /[$`*?]/ : /[$`*?~\\]/;
+  return !(isAbsolute(target) && !expands.test(target) && resolve(native(target)) === resolve(cwd));
 }
 
 /** Record what happened, then hand judgment calls to Jev. Nothing here can block. */
@@ -309,7 +313,7 @@ const TESTS_STAY =
 
 function secretMessage(ctx: Ctx, paths: string[], hits: string[]): string {
   const files = list(paths.map((p) => rel(ctx.cwd, p)));
-  const advice = paths.some((p) => /(^|\/)\.env/.test(p))
+  const advice = paths.some((p) => /(^|\/)\.env/.test(slash(p)))
     ? "An env file is only the place for it once git ignores the file, and a committed template never is."
     : "Read the value from the environment or a git-ignored env file instead of writing it into the file.";
   return `Canny: ${files} would contain what looks like a ${hits.join(" and a ")}. ${advice}`;

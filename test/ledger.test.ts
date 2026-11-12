@@ -10,7 +10,7 @@ describe("sessionFile", () => {
     (session) => {
       const file = sessionFile("claude", session);
       expect(dirname(file)).toBe(sessionsDir());
-      expect(file).toMatch(/\/claude-[\w.-]+\.jsonl$/);
+      expect(file).toMatch(/[\\/]claude-[\w.-]+\.jsonl$/);
     },
   );
 });

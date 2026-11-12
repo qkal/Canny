@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
-import { findSecrets, isPrivateEnv, isTestFile, isVerify, plain, projectCheck, required, testDamage, userIgnored, withPipefail, } from "./checks.js";
+import { findSecrets, isPrivateEnv, isTestFile, isVerify, native, plain, projectCheck, required, slash, testDamage, userIgnored, withPipefail, } from "./checks.js";
 import { off } from "./config.js";
 import { fileOps, isObj, shellEdits, shellWrites } from "./events.js";
 import { NO, YES, noul } from "./jev.js";
@@ -130,7 +130,9 @@ function leavesCwd(command, cwd) {
     // Single quotes make `$PWD` a directory of that name.
     if (/^\$(?:PWD|\{PWD\})$/.test(target))
         return quote === "'";
-    return !(isAbsolute(target) && !/[$`*?~\\]/.test(target) && resolve(target) === resolve(cwd));
+    // Inside quotes a backslash is part of the path, which is how a Windows directory is spelled.
+    const expands = quote ? /[$`*?]/ : /[$`*?~\\]/;
+    return !(isAbsolute(target) && !expands.test(target) && resolve(native(target)) === resolve(cwd));
 }
 /** Record what happened, then hand judgment calls to Jev. Nothing here can block. */
 async function post(ctx, deps) {
@@ -257,7 +259,7 @@ function describe(ctx, c, d, by = "edit") {
 const TESTS_STAY = "Tests are only removed or skipped when the user asked for it. Fix the code the test covers instead.";
 function secretMessage(ctx, paths, hits) {
     const files = list(paths.map((p) => rel(ctx.cwd, p)));
-    const advice = paths.some((p) => /(^|\/)\.env/.test(p))
+    const advice = paths.some((p) => /(^|\/)\.env/.test(slash(p)))
         ? "An env file is only the place for it once git ignores the file, and a committed template never is."
         : "Read the value from the environment or a git-ignored env file instead of writing it into the file.";
     return `Canny: ${files} would contain what looks like a ${hits.join(" and a ")}. ${advice}`;
