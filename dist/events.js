@@ -168,7 +168,8 @@ const NOT_A_FILE = /^(&\d*|\/dev\/(null|stdout|stderr|tty)|-)$/;
 const HEREDOC = /<<-?\s*(?:\\|(["']?))([^\s"'<>|;&\\]+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\s|$)/g;
 /** Heredoc bodies hold text, not shell: `> quote` in markdown, `rm x` in a script being written. */
 const withoutHeredocs = (cmd) => cmd.replace(HEREDOC, (m) => m.split("\n", 1)[0]);
-const unquote = (t) => t.replace(/^["']|["']$/g, "");
+/** A shell word as the path it names: quotes dropped, and a leading `~` read as the home directory unless it was quoted. */
+const unquote = (t) => /^["']/.test(t) ? t.replace(/^["']|["']$/g, "") : t.replace(/^~(?=[/\\]|$)/, homedir());
 /** A quoted shell string. Inside double quotes `\"` is text, not the end: `echo "{\"a\": 1};" > f`. */
 const QUOTED = String.raw `"(?:\\.|[^"\\])*"|'[^']*'`;
 /**
@@ -234,11 +235,9 @@ const shellChanges = (cmd) => {
         ...ops.moved.map(([from]) => from),
     ];
     const dir = leadingCd(cmd);
-    return (paths
+    return paths
         .flatMap((p) => expandVars(p, cmd))
-        // The shell reads a leading `~` as the home directory, not as a directory of that name here.
-        .map((p) => p.replace(/^~(?=[/\\]|$)/, homedir()))
-        .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? join(dir, p) : p)));
+        .map((p) => (dir && !isAbsolute(p) && !p.startsWith("~") ? join(dir, p) : p));
 };
 /** Text no shell expansion touched: no variable, glob, or substitution. */
 const LITERAL = /^[^$*?[`\\]+$/;
@@ -273,7 +272,7 @@ function leadingCd(cmd) {
     const m = new RegExp(String.raw `^\s*cd\s+(${QUOTED}|[^\s;&|]+)\s*(?:;|&&|\n)`).exec(cmd);
     if (!m || (maskQuotes(cmd).match(MOVES) ?? []).length > 1)
         return null;
-    const dir = unquote(m[1]).replace(/^~(?=\/|$)/, homedir());
+    const dir = unquote(m[1]);
     return LITERAL.test(dir) ? dir : null;
 }
 /** `echo` or `printf` as a word anywhere in the statement, so wrappers such as `command`, `env`, and `then` need no list. */

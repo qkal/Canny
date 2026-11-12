@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -52,6 +52,10 @@ describe("inProject", () => {
     mkdirSync(join(repo, "web"));
     expect(inProject("../api/a.ts", join(repo, "web"))).toBe(true);
     expect(inProject("../../elsewhere/a.ts", join(repo, "web"))).toBe(false);
+    // Through a symlink the cwd has the link's parents, which hold no `.git`.
+    const link = join(mkdtempSync(join(tmpdir(), "canny-link-")), "web");
+    symlinkSync(join(repo, "web"), link);
+    expect(inProject(join(repo, "api/a.ts"), link)).toBe(true);
   });
 });
 
@@ -84,6 +88,10 @@ describe("isVerify", () => {
     ["node test.js", true],
     ["node src/math.test.mjs", true],
     ["ruby test/user_test.rb", true],
+    ["python -u tests.py", true],
+    ["node --enable-source-maps test.js", true],
+    ["python -c 'import sys' tests.py", false],
+    ["python -m http.server tests.py", false],
     ["python manage.py runserver", false],
     ["python latest.py", false],
     ["node test/fixtures/scrub.mjs", false],

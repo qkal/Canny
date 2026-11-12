@@ -7,8 +7,9 @@ const VERIFY = [
     /\b(tsc|cargo build|go build|go vet|swift build|xcodebuild|gradlew? (build|assemble)|mvn (package|compile|verify)|dotnet build|npm run build|pnpm build|pnpm run build|yarn build|make build|just build|bun run build|vite build|next build|esbuild|webpack)\b/,
     /\b(eslint|oxlint|biome (check|lint)|prettier --check|ruff (check|format --check)|flake8|pylint|mypy|pyright|pyrefly|ty check|pnpm type-check|npm run lint|pnpm lint|pnpm run lint|yarn lint|golangci-lint|cargo clippy|swiftlint|swift-format lint|pre-commit run|just lint|just check|rubocop|shellcheck)\b/,
     // A test file run directly: `python tests.py`, `node test.js`. The name has to say it is one,
-    // since `python manage.py` and `node test/fixtures/scrub.mjs` check nothing.
-    /\b(?:python[\d.]*|node|ruby)\s+(?:[^\s;|&]*[/\\])?(?:tests?|test_[\w.-]+|[\w.-]+[_.](?:tests?|spec))\.(?:py|rb|[cm]?[jt]sx?)\b/,
+    // since `python manage.py` and `node test/fixtures/scrub.mjs` check nothing. Options may come
+    // first (`python -u tests.py`), but not `-c`, `-m`, `-e`, or `-p`: after those the file is an argument.
+    /\b(?:python[\d.]*|node|ruby)(?:\s+-(?![cmep]\b)[\w-]+(?:=\S+)?)*\s+(?:[^\s;|&]*[/\\])?(?:tests?|test_[\w.-]+|[\w.-]+[_.](?:tests?|spec))\.(?:py|rb|[cm]?[jt]sx?)\b/,
 ];
 // Config patterns are tested once per path and once per command segment, so each is compiled once.
 const compiled = new Map();
@@ -160,11 +161,13 @@ export const real = (path) => {
 };
 /** The repository a session works in: the nearest directory at or above `cwd` that holds `.git`, or `cwd` when none does. The agent may be working in a subdirectory of it. */
 export const projectRoot = (cwd) => {
-    for (let dir = resolve(cwd);; dir = dirname(dir)) {
+    // Resolved first: a cwd reached through a symlink has the link's parents, not the repository's.
+    const start = real(resolve(cwd));
+    for (let dir = start;; dir = dirname(dir)) {
         if (existsSync(join(dir, ".git")))
-            return real(dir);
+            return dir;
         if (dir === dirname(dir))
-            return real(resolve(cwd));
+            return start;
     }
 };
 /**

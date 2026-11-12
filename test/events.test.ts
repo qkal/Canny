@@ -283,6 +283,9 @@ describe("writeTargets", () => {
     ["cd /repo/web; cp a.ts /abs/b.ts", ["/abs/b.ts"]],
     // A home path is not relative to the `cd`, and after a second `cd` the directory is not known.
     ["cd web && echo x > ~/notes.ts", [join(homedir(), "notes.ts")]],
+    // A quoted `~` is a directory of that name, here.
+    ['echo x > "~/notes.ts"', ["~/notes.ts"]],
+    ["rm '~/a.ts' ~/b.ts", ["~/a.ts", join(homedir(), "b.ts")]],
     ["cd web && pnpm test && cd .. && echo x > a.ts", ["a.ts"]],
     // A quote escaped outside a string opens nothing, so the `rm` between two of them still runs.
     ["echo it\\'s; rm tests/a.test.ts; echo that\\'s", ["tests/a.test.ts"]],
