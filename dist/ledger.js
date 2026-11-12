@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { fingerprint, inside, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
+import { fingerprint, inside, isIgnored, isScratch, isVerify, plain, requiredBy, sha, } from "./checks.js";
 import { errorLog, home } from "./config.js";
 export const sessionsDir = () => join(home(), "sessions");
 export const sessionFile = (agent, session) => join(sessionsDir(), `${agent}-${session.replace(/[^\w.-]/g, "_")}.jsonl`);
@@ -26,11 +26,13 @@ export function toFact(event, cwd, config) {
         }
         case "command": {
             const lines = event.output.split("\n").filter((l) => l.trim());
+            const required = requiredBy(event.command, config);
             return {
                 kind: "command",
                 command: plain(event.command),
                 exitCode: event.exitCode,
                 verify: isVerify(event.command, config),
+                ...(required.length && { required }),
                 fingerprint: fingerprint(event.command, event.output),
                 summary: plain(lines.at(-1) ?? "").slice(0, 200),
                 code: code(event.changedFiles),
@@ -77,6 +79,7 @@ export function summarize(entries) {
     const s = {
         codeFiles: [],
         verified: null,
+        passed: [],
         lastCommand: null,
         repeats: {},
         factsSinceBlock: -1,
@@ -92,6 +95,7 @@ export function summarize(entries) {
         const f = e.fact;
         if (f.code.length) {
             s.verified = null;
+            s.passed = [];
             for (const p of f.code)
                 if (!seen.has(p)) {
                     seen.add(p);
@@ -104,8 +108,10 @@ export function summarize(entries) {
                 const r = (s.repeats[f.fingerprint] ??= { command: f.command, n: 0 });
                 r.n++;
             }
-            if (f.verify && f.exitCode === 0)
+            if (f.verify && f.exitCode === 0) {
                 s.verified = f;
+                s.passed.push(...(f.required ?? []));
+            }
         }
         if ((f.code.length || f.kind === "command") && s.factsSinceBlock >= 0)
             s.factsSinceBlock++;

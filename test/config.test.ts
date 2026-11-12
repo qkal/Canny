@@ -18,8 +18,15 @@ const write = (config: unknown): string => {
 
 describe("loadConfig", () => {
   it("drops the fields that turn checks off until the file is trusted", () => {
-    write({ verify: ["^"], ignore: ["."], allow: ["secrets"], rules: ["no"], strict: true });
-    expect(loadConfig(cwd)).toEqual({ strict: true });
+    write({
+      verify: ["^"],
+      ignore: ["."],
+      allow: ["secrets"],
+      rules: ["no"],
+      strict: true,
+      require: ["tsc"],
+    });
+    expect(loadConfig(cwd)).toEqual({ strict: true, require: ["tsc"] });
     expect(loadConfig(mkdtempSync(join(tmpdir(), "canny-config-none-")))).toEqual({});
   });
 

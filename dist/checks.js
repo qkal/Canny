@@ -44,6 +44,19 @@ command.replace(/"[^"]*"|'[^']*'/g, "").replace(/(^|(?<!\\)\s)#[^\n]*/g, "$1");
  * other command's status, so it does not count.
  */
 export function isVerify(command, config) {
+    return checksIn(command, config).length > 0;
+}
+/** `config.require` as usable patterns. The field is read from an untrusted file, so anything but a string that compiles is dropped: a typo must not crash the hook open. */
+export const required = (config) => Array.isArray(config.require)
+    ? config.require.filter((p) => typeof p === "string" && safeRegex(p) !== null)
+    : [];
+/** The `require` patterns this command satisfies. Only a check that counts can satisfy one, so the field never adds to what counts. */
+export function requiredBy(command, config) {
+    const checks = checksIn(command, config);
+    return required(config).filter((p) => checks.some((c) => safeRegex(p).test(c)));
+}
+/** The checks in a command whose own exit status is the command's result. */
+function checksIn(command, config) {
     const bare = executed(command);
     // Only a `set` statement changes the option, the word in an echo or a comment does not, and the last one wins.
     const pipefail = [...bare.matchAll(/(?:^|[;&\n])\s*set\s+([+-])\w*o\s+pipefail\b/g)].at(-1)?.[1] === "-";
@@ -51,20 +64,24 @@ export function isVerify(command, config) {
         .split(/[;\n]/)
         .map((s) => s.trim())
         .findLast(Boolean) ?? "";
-    return last.split("&&").some((raw) => {
-        const part = raw.trim();
-        if (part.includes("||") || (!pipefail && part.includes("|")))
-            return false;
+    const parts = last.split("&&").map((s) => s.trim());
+    // `a && b || true` exits 0 when `a` fails: an `||` rescues every check before it, and the one
+    // after it may never run. Only what follows the last `||` part reports its own status.
+    const from = parts.findLastIndex((p) => p.includes("||")) + 1;
+    return parts.slice(from).flatMap((part) => {
+        if (!pipefail && part.includes("|"))
+            return [];
         // A lone `&` backgrounds the check; `2>&1` and `&>` are redirections.
         if (/(?<!>)&(?!>)/.test(part))
-            return false;
+            return [];
         // Under pipefail the check is the command that feeds the pipe, so `^npm test$` names it.
         const check = part.split("|")[0].trim();
         if (notACheck(check))
-            return false;
-        return config.verify
+            return [];
+        const counts = config.verify
             ? config.verify.some((p) => safeRegex(p)?.test(check))
             : VERIFY.some((re) => re.test(check));
+        return counts ? [check] : [];
     });
 }
 /**

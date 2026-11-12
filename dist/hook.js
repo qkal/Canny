@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
-import { findSecrets, isPrivateEnv, isTestFile, isVerify, plain, projectCheck, testDamage, userIgnored, withPipefail, } from "./checks.js";
+import { findSecrets, isPrivateEnv, isTestFile, isVerify, plain, projectCheck, required, testDamage, userIgnored, withPipefail, } from "./checks.js";
 import { off } from "./config.js";
 import { fileOps, isObj, shellEdits, shellWrites } from "./events.js";
 import { NO, YES, noul } from "./jev.js";
@@ -32,9 +32,13 @@ export async function handle(ctx, deps) {
 function brief(ctx, deps) {
     const check = projectCheck(ctx.cwd);
     const named = check && isVerify(check, deps.config) ? ` This project's check is \`${check}\`.` : "";
+    const need = required(deps.config);
+    const each = need.length
+        ? ` A command matching each of these has to pass after your last code edit: ${ticks(need)}.`
+        : "";
     return {
         kind: "note",
-        message: `Canny guards this session. Before you finish, a check has to pass after your last code edit.${counts(deps.config)}${named} Keys go in a git-ignored env file, and tests are removed or skipped only when the user asks.`,
+        message: `Canny guards this session. Before you finish, a check has to pass after your last code edit.${counts(deps.config)}${named}${each} Keys go in a git-ignored env file, and tests are removed or skipped only when the user asks.`,
     };
 }
 /** Pattern checks that can block, before the tool runs. Nothing is recorded here: the edit has not happened yet. */
@@ -190,7 +194,7 @@ async function stop(ctx, deps) {
     append(deps.file, entry(ctx, toFact(ctx.event, ctx.cwd, deps.config)));
     const s = summarize(read(deps.file));
     let claimsDone;
-    if (s.codeFiles.length && !s.verified && ctx.event.message) {
+    if (s.codeFiles.length && !checked(s, deps.config) && ctx.event.message) {
         const answers = await deps.judge({ message: ctx.event.message }, { [CLAIMS_DONE_ID]: CLAIMS_DONE });
         claimsDone = answers?.[CLAIMS_DONE_ID];
     }
@@ -201,25 +205,35 @@ async function stop(ctx, deps) {
  * relax the block when it is sure the message is not a "done" claim.
  */
 export function decideStop(s, stopHookActive, claimsDone, config) {
-    if (!s.codeFiles.length || s.verified)
+    if (!s.codeFiles.length || checked(s, config))
         return { kind: "allow" };
-    if (stopHookActive && s.factsSinceBlock === 0 && !config.strict)
+    if (stopHookActive && s.factsSinceBlock === 0 && !config.strict) {
+        const need = missing(s, config);
         return {
             kind: "warn",
-            message: `Canny: the agent finished without a passing check after editing ${list(s.codeFiles)}. Verify by hand.`,
+            message: `Canny: the agent finished without ${need.length ? `a pass of the required ${ticks(need)}` : "a passing check"} after editing ${list(s.codeFiles)}. Verify by hand.`,
         };
+    }
     if (claimsDone !== undefined && claimsDone <= NO)
         return { kind: "allow" };
     return { kind: "block", message: blockReason(s, config) };
 }
+/** Required checks with no pass since the last code edit. */
+const missing = (s, config) => required(config).filter((p) => !s.passed.includes(p));
+/** A check passed after the last code edit, and so did every required one. */
+const checked = (s, config) => Boolean(s.verified) && !missing(s, config).length;
 function blockReason(s, config) {
+    const need = missing(s, config);
+    const what = need.length
+        ? `not every required check has passed since the last edit. Still needed: ${ticks(need)}.`
+        : "no check has passed since the last edit.";
     const last = s.lastCommand
         ? ` The last command was \`${short(s.lastCommand.command)}\`${s.lastCommand.exitCode === null ? "" : ` (exit ${s.lastCommand.exitCode})`}.`
         : "";
     const tail = config.strict
         ? ""
         : " If no check applies to this change, say so explicitly and stop again.";
-    return `Canny: ${list(s.codeFiles)} changed, but no check has passed since the last edit.${last} Run the project's checks and fix what fails before finishing.${counts(config)}${tail}`;
+    return `Canny: ${list(s.codeFiles)} changed, but ${what}${last} Run the project's checks and fix what fails before finishing.${counts(config)}${tail}`;
 }
 const counts = (config) => config.verify?.length
     ? ` Commands that count: ${config.verify.map((v) => `\`${v}\``).join(", ")}.`
@@ -311,6 +325,8 @@ function record(ctx, deps, d) {
     return d;
 }
 const short = (cmd) => (cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd).replace(/\s+/g, " ");
+/** Config patterns as they are shown to the agent and the user. */
+const ticks = (patterns) => patterns.map((p) => `\`${short(plain(p))}\``).join(", ");
 const clip = (s) => (s.length > 4000 ? s.slice(0, 4000) + "\n[clipped]" : s);
 function list(files) {
     const shown = files.slice(0, 3).join(", ");

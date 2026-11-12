@@ -8,6 +8,7 @@ import {
   isIgnored,
   isScratch,
   isVerify,
+  requiredBy,
   projectCheck,
   testDamage,
   withPipefail,
@@ -101,6 +102,7 @@ describe("isVerify", () => {
     (c) => `${c} | grep -v warn`,
     (c) => `${c} || true`,
     (c) => `(${c}) || echo failed`,
+    (c) => `${c} && echo ok || true`,
     (c) => `${c}; echo done`,
     (c) => `${c}\necho done`,
     (c) => `${c} &`,
@@ -124,6 +126,7 @@ describe("isVerify", () => {
     (c) => `pnpm install && ${c}`,
     (c) => `echo start; ${c}`,
     (c) => `${c} && echo ok`,
+    (c) => `pnpm install || true && ${c}`,
     (c) => `set -o pipefail; ${c} | tail -20`,
   ];
   const all = (forms: ((c: string) => string)[]): string[] =>
@@ -142,6 +145,21 @@ describe("isVerify", () => {
       expect(isVerify("just check", { verify: ["^just check$"] })).toBe(true);
     },
   );
+});
+
+describe("requiredBy", () => {
+  const config = { require: ["^pnpm test", "tsc", "^true$"] };
+  it.each([
+    ["pnpm lint && pnpm test", ["^pnpm test"]],
+    ["pnpm test && tsc --noEmit", ["^pnpm test", "tsc"]],
+    // The exit status is hidden, so the requirement is not met either.
+    ["pnpm test | tail -5", []],
+    // Only a check that counts can satisfy a requirement.
+    ["true", []],
+    ["pnpm test && true", ["^pnpm test"]],
+    // A later `||` rescues a failed check, so only what follows it is credited.
+    ["pnpm test && pnpm lint || true && tsc --noEmit", ["tsc"]],
+  ])("%s -> %j", (cmd, met) => expect(requiredBy(cmd, config)).toEqual(met));
 });
 
 describe("isIgnored", () => {

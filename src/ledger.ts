@@ -8,7 +8,16 @@ import {
   statSync,
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { fingerprint, inside, isIgnored, isScratch, isVerify, plain, sha } from "./checks.js";
+import {
+  fingerprint,
+  inside,
+  isIgnored,
+  isScratch,
+  isVerify,
+  plain,
+  requiredBy,
+  sha,
+} from "./checks.js";
 import { errorLog, home, type Config } from "./config.js";
 import type { Agent, Event, Phase } from "./events.js";
 import type { JevLog } from "./jev.js";
@@ -18,6 +27,8 @@ export interface CommandFact {
   command: string;
   exitCode: number | null;
   verify: boolean;
+  /** The `require` patterns this command satisfied. Left out when there are none. */
+  required?: string[];
   fingerprint: string;
   summary: string;
   /** Code files the command wrote, by redirection or as reported by the agent. */
@@ -76,11 +87,13 @@ export function toFact(event: Event, cwd: string, config: Config): Fact | null {
     }
     case "command": {
       const lines = event.output.split("\n").filter((l) => l.trim());
+      const required = requiredBy(event.command, config);
       return {
         kind: "command",
         command: plain(event.command),
         exitCode: event.exitCode,
         verify: isVerify(event.command, config),
+        ...(required.length && { required }),
         fingerprint: fingerprint(event.command, event.output),
         summary: plain(lines.at(-1) ?? "").slice(0, 200),
         code: code(event.changedFiles),
@@ -128,6 +141,8 @@ export interface Summary {
   codeFiles: string[];
   /** The passing check that ran after the last code edit, if any. */
   verified: CommandFact | null;
+  /** The `require` patterns a passing check has satisfied since the last code edit. */
+  passed: string[];
   lastCommand: CommandFact | null;
   /** Failure fingerprint to how often it happened, with the command that produced it. */
   repeats: Record<string, { command: string; n: number }>;
@@ -140,6 +155,7 @@ export function summarize(entries: Entry[]): Summary {
   const s: Summary = {
     codeFiles: [],
     verified: null,
+    passed: [],
     lastCommand: null,
     repeats: {},
     factsSinceBlock: -1,
@@ -153,6 +169,7 @@ export function summarize(entries: Entry[]): Summary {
     const f = e.fact;
     if (f.code.length) {
       s.verified = null;
+      s.passed = [];
       for (const p of f.code)
         if (!seen.has(p)) {
           seen.add(p);
@@ -165,7 +182,10 @@ export function summarize(entries: Entry[]): Summary {
         const r = (s.repeats[f.fingerprint] ??= { command: f.command, n: 0 });
         r.n++;
       }
-      if (f.verify && f.exitCode === 0) s.verified = f;
+      if (f.verify && f.exitCode === 0) {
+        s.verified = f;
+        s.passed.push(...(f.required ?? []));
+      }
     }
     if ((f.code.length || f.kind === "command") && s.factsSinceBlock >= 0) s.factsSinceBlock++;
   }

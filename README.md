@@ -128,7 +128,7 @@ A fourth hook, `SessionStart`, tells the agent up front what the done-gate asks 
 
 | Check                                                                                                                                                                                                                                                                                  | When        | Decided by | Outcome                                        |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------- | ---------------------------------------------- |
-| A code file changed and no test, build, lint, or type-check command has passed since                                                                                                                                                                                                   | Stop        | ledger     | block                                          |
+| A code file changed and no test, build, lint, or type-check command has passed since, or a check named in `require` has not                                                                                                                                                            | Stop        | ledger     | block                                          |
 | Content about to be written contains a secret shape: AWS, GitHub, Slack, Stripe, Google, OpenAI or Anthropic keys, private key blocks, or `password = "…"` with real-looking entropy. Shell commands that write a file are read the same way. A `.env` file that git ignores is exempt | PreToolUse  | pattern    | deny                                           |
 | An edit removes test cases, adds `.skip`, `.only`, `xit`, `@pytest.mark.skip`, `t.Skip`, `#[ignore]`, `@Disabled`, `XCTSkip` and friends, or deletes a test file; or a shell command does the same with `rm`, `git rm`, `mv`, a redirect, or `sed -i`                                  | PreToolUse  | pattern    | ask on Claude Code, deny on Codex              |
 | A check piped into `tail`, such as `npm test 2>&1 \| tail -20`, which hides the check's exit status                                                                                                                                                                                    | PreToolUse  | pattern    | rewritten to run behind `set -o pipefail`      |
@@ -145,7 +145,7 @@ The rewrite keeps the output the agent asked for and makes the check's own exit 
 At every Stop, in this order:
 
 1. No code file was edited this session: allow. Docs, images, and lockfiles do not count as code.
-2. A check exited 0 after the last code edit: allow.
+2. A check exited 0 after the last code edit, and so did a check matching every `require` pattern when the project sets any: allow.
 3. This is already a re-run after a block and nothing new has happened since: allow, and warn the user that the agent finished without a passing check. Set `"strict": true` to skip this step and keep blocking; Claude Code caps consecutive blocks at eight.
 4. Jev is available and at least 90 percent sure the message is _not_ a "done" claim (the agent is asking a question, or reporting being stuck): allow.
 5. Otherwise: block, with a reason that names the files, the last command and its exit code, and what counts as a check.
@@ -188,6 +188,7 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 ```json
 {
   "verify": ["^just check", "uv run pytest"],
+  "require": ["uv run pytest"],
   "ignore": ["^generated/"],
   "rules": ["Never hardcode model IDs.", "Use pnpm, not npm."],
   "allow": ["test-removal"],
@@ -196,6 +197,7 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 ```
 
 - `verify`: regexes for commands that count as a check. Replaces the built-in list of about eighty: pytest, vitest, jest, go test, cargo test, swift test, node --test, tsc, eslint, ruff, pre-commit, and so on. Quoted strings are stripped before matching, so a commit message that mentions pytest does not count. The check's own exit status has to be the result: followed by `|| true`, followed by `; echo done`, or piped into anything without `pipefail`, it does not count. A Bash check piped only into `tail` is run with `pipefail` added, so it counts.
+- `require`: regexes that each have to match a passing check after the last code edit. Without it, any one check opens the done-gate, so a lint run after a logic change is enough. Each pattern is matched against a command that already counts as a check, so it cannot add to what counts: a command off the built-in list goes in `verify` as well, and when `verify` is set, every required command has to be on it, as `uv run pytest` is above. One command can satisfy several patterns: `pnpm lint && pnpm test` satisfies one for each. `canny status` shows how many have passed.
 - `ignore`: regexes for edited paths that never need a check. Adds to docs, images, and lockfiles. Edits to these paths are also never sent to Jev.
 - `rules`: the rules Jev is asked about. Replaces the automatic extraction of instruction-like bullets from `CLAUDE.md`, `AGENTS.md`, and `.claude/CLAUDE.md`, which keeps at most 24, strongest wording first. Because it replaces that extraction, it waits for `canny trust`.
 - `allow`: checks to turn off: `secrets`, `test-removal`, `repeat-failure`, `rules`. With `rules` off, no edit is sent to Jev; the done-claim question at Stop still is when a key is set.
@@ -203,7 +205,7 @@ Optional `.canny.json` in the project, or in any parent directory up to your hom
 
 ### The four fields that loosen the guard wait for `canny trust`
 
-`.canny.json` lives in the repository the agent is editing. A repo you clone can ship one, and an agent that just got blocked can write one. So the four fields that can turn a check off or narrow what it looks at — `verify`, `ignore`, `rules`, `allow` — do nothing until you run `canny trust` in the project. `rules` is in that list because it replaces the `CLAUDE.md` extraction: one junk rule in an untrusted file would otherwise silence every rule you wrote. `strict` is read either way: it only ever asks for more.
+`.canny.json` lives in the repository the agent is editing. A repo you clone can ship one, and an agent that just got blocked can write one. So the four fields that can turn a check off or narrow what it looks at — `verify`, `ignore`, `rules`, `allow` — do nothing until you run `canny trust` in the project. `rules` is in that list because it replaces the `CLAUDE.md` extraction: one junk rule in an untrusted file would otherwise silence every rule you wrote. `strict` and `require` are read either way: they only ever ask for more.
 
 ```text
 canny trust     trusted /work/api/.canny.json: verify, allow now take effect

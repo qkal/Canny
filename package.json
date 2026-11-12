@@ -48,11 +48,11 @@
     "prepare": "git config --get core.hooksPath || git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
-    "@types/node": "^26.6.1",
-    "@vitest/coverage-v8": "^5.0.1",
-    "oxlint": "^1.83.0",
-    "prettier": "^3.9.8",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.1.0",
+    "oxlint": "^1.93.0",
+    "prettier": "^3.10.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.1.0"
   }
 }

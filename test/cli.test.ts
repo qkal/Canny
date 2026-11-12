@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
@@ -60,6 +61,11 @@ describe("every command runs from a fresh process", () => {
     };
     expect(JSON.parse(canny(["hook", "--agent", "claude"], JSON.stringify(event)))).toEqual({});
     expect(canny(["status"])).toMatch(/session {3}claude-smoke\.jsonl[\s\S]*edited {4}src\/a\.ts/);
+    writeFileSync(join(project, ".canny.json"), '{"require":["tsc"]}');
+    expect(canny(["status"])).toContain(
+      "required  0 of 1 passed since the last edit; still needed: tsc",
+    );
+    rmSync(join(project, ".canny.json"));
     expect(canny(["sessions"])).toContain(project);
     expect(canny(["replay"])).toContain("all Stop verdicts reproduced");
   });
