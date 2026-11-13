@@ -75,6 +75,9 @@ describe("every command runs from a fresh process", () => {
     expect(canny(["status"])).toContain(
       "required  0 of 1 passed since the last edit; still needed: tsc",
     );
+    // A `require` pattern is untrusted text: its ESC and BEL bytes print as spaces, never raw.
+    writeFileSync(join(project, ".canny.json"), '{"require":["\\u001b]52;c;aGk=\\u0007"]}');
+    expect(canny(["status"])).toContain("still needed:  ]52;c;aGk= \n");
     rmSync(join(project, ".canny.json"));
     expect(canny(["sessions"])).toContain(project);
     expect(canny(["replay"])).toContain("all Stop verdicts reproduced");
