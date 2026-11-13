@@ -77,3 +77,9 @@ The scrub keeps only the scratch project's events and replaces paths, ids, the u
 - Conventional Commits, lowercase, imperative: `feat: count tee targets as edits`, `fix: read codex exit codes from the transcript`.
 - One issue per pull request.
 - The rule that shapes every change: facts go to code, judgments go to Jev, and only facts can block. A new check that blocks must be derivable from the ledger or the tool input alone.
+
+## Releasing
+
+Users install a release tag, not `main`, so a release is one pull request. In it, set `version` in `package.json`, rename `## [Unreleased]` in `CHANGELOG.md` to `## [x.y.z] - <date>` under a fresh empty `## [Unreleased]`, update the compare links at the bottom, and change every `v` tag the README names (the install prompt, the update prompt, the clone by hand, the release notice) to the new one.
+
+`.github/workflows/release.yml` checks that pull request: `CHANGELOG.md` needs a section for the version, the README install has to check out `vx.y.z`, no README clone or checkout may pin another tag, and the README has to link to the release. Then it runs `pnpm check`, in a job with a read-only token. When the pull request is merged, the same checks run on `main`, and a second job tags the merge commit `vx.y.z` and publishes the GitHub release as the latest, with that `CHANGELOG.md` section as its notes. A version that already has a release is left alone.
