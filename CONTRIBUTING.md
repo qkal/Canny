@@ -80,13 +80,6 @@ The scrub keeps only the scratch project's events and replaces paths, ids, the u
 
 ## Releasing
 
-Users install a release tag, not `main`, so a release is one pull request and one tag:
+Users install a release tag, not `main`, so a release is one pull request. In it, set `version` in `package.json`, rename `## [Unreleased]` in `CHANGELOG.md` to `## [x.y.z] - <date>` under a fresh empty `## [Unreleased]`, update the compare links at the bottom, and change every `v` tag the README names (the install prompt, the update prompt, the clone by hand, the release notice) to the new one.
 
-1. In a pull request, set `version` in `package.json`, rename `## [Unreleased]` in `CHANGELOG.md` to `## [x.y.z] - <date>` under a fresh empty `## [Unreleased]`, update the compare links at the bottom, and change every `v` tag the README names (the install prompt, the update prompt, the clone by hand, the release notice) to the new one.
-2. Once it is merged, tag the merge commit on `main` and push the tag:
-
-   ```bash
-   git tag -a vx.y.z -m vx.y.z && git push origin vx.y.z
-   ```
-
-`.github/workflows/release.yml` then refuses a tag that does not match `package.json`, is not on `main`, or has no `CHANGELOG.md` section, and refuses it while the README install does not check it out, any README clone or checkout pins another tag, or the README does not link to its release. It runs `pnpm check` in a job with a read-only token, then publishes the GitHub release as the latest from a second job, with that `CHANGELOG.md` section as its notes.
+`.github/workflows/release.yml` checks that pull request: `CHANGELOG.md` needs a section for the version, the README install has to check out `vx.y.z`, no README clone or checkout may pin another tag, and the README has to link to the release. Then it runs `pnpm check`, in a job with a read-only token. When the pull request is merged, the same checks run on `main`, and a second job tags the merge commit `vx.y.z` and publishes the GitHub release as the latest, with that `CHANGELOG.md` section as its notes. A version that already has a release is left alone.

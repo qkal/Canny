@@ -1,47 +1,70 @@
 name: release
 
-# Pushing a version tag publishes its GitHub release: `git tag -a v0.4.0 -m v0.4.0 && git push origin v0.4.0`.
+# Merging a version bump into main publishes that version: the workflow tags the merge commit `v<version>`
+# and publishes its GitHub release as the latest. On a pull request it only runs the checks.
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+    branches: [main]
+    paths: [package.json]
+  pull_request:
+    paths: [package.json, .github/workflows/release.yml]
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # Runs the dependencies' code (pnpm install, the gates), so it gets no write token.
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # The whole history, so the tag can be checked against `main`.
-          fetch-depth: 0
           persist-credentials: false
-      # The tag is the version users install, so everything that names it has to agree before it ships.
-      - name: Check the tag, package.json, CHANGELOG.md and README.md agree
+      - name: Find the version and whether it is released already
+        id: version
         env:
-          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(node -p 'require("./package.json").version')
-          [ "$TAG" = "v$version" ] || { echo "::error::$TAG does not match package.json version $version"; exit 1; }
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$TAG is not on main"; exit 1; }
-          grep -qF "## [$version] - " CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for $version"; exit 1; }
+          tag="v$(node -p 'require("./package.json").version')"
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::package.json version ${tag#v} is not x.y.z"; exit 1; }
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "$tag is released already: nothing to do"
+          else
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+      # The tag is the version users install, so everything that names it has to agree before it ships.
+      - name: Check CHANGELOG.md and README.md name the version
+        if: steps.version.outputs.tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          grep -qF "## [${TAG#v}] - " CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for ${TAG#v}"; exit 1; }
           grep -qF -- "--branch $TAG " README.md || { echo "::error::the README install does not check out $TAG"; exit 1; }
           stale=$(grep -oE -- '(--branch|checkout --detach) v[0-9]+\.[0-9]+\.[0-9]+' README.md | grep -vF -- " $TAG" || true)
           [ -z "$stale" ] || { echo "::error::README.md still pins another tag: $stale"; exit 1; }
           grep -qF "releases/tag/$TAG" README.md || { echo "::error::README.md does not link to the $TAG release"; exit 1; }
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - if: steps.version.outputs.tag
+        uses: pnpm/action-setup@v6
+      - if: steps.version.outputs.tag
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check
+      - if: steps.version.outputs.tag
+        run: pnpm install --frozen-lockfile
+      - if: steps.version.outputs.tag
+        run: pnpm check
 
   release:
     needs: check
+    if: github.event_name == 'push' && needs.check.outputs.tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -52,16 +75,15 @@ jobs:
           # The previous tag, for the compare link.
           fetch-depth: 0
           persist-credentials: false
-      - name: Publish the release as the latest
+      - name: Tag the merge commit and publish the release as the latest
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.check.outputs.tag }}
         run: |
-          version=${TAG#v}
           # The release notes are the version's CHANGELOG.md section, without its heading.
-          awk -v head="## [$version] - " 'index($0, head) == 1 { on = 1; next } on && /^## \[/ { exit } on' CHANGELOG.md > notes.md
-          previous=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          awk -v head="## [${TAG#v}] - " 'index($0, head) == 1 { on = 1; next } on && /^## \[/ { exit } on' CHANGELOG.md > notes.md
+          previous=$(git describe --tags --abbrev=0 --exclude "$TAG" 2>/dev/null || true)
           if [ -n "$previous" ]; then
             printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$previous" "$TAG" >> notes.md
           fi
-          gh release create "$TAG" --verify-tag --latest --title "$TAG" --notes-file notes.md
+          gh release create "$TAG" --target "$GITHUB_SHA" --latest --title "$TAG" --notes-file notes.md
