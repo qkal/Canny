@@ -16,6 +16,7 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 - Paths with Windows separators are read like any other. The patterns for test files, ignored directories, and env files only accepted `/`, while Claude Code on Windows sends `C:\…` and `path.relative` answers with `\` there. So adding `test.skip(` to `tests\helper.js` or deleting it went through without a question, an edit under `docs\` or `node_modules\` blocked the Stop, and a key written to a git-ignored `config\.env` was denied. The ledger now records paths with `/` on every system, so an `ignore` pattern such as `^generated/` matches on Windows too.
 - On Windows a Git Bash path (`/c/Users/…`) is read as `C:\Users\…`. It used to resolve to `C:\c\Users\…`, so the test-removal check read a file that does not exist and let the write through.
 - A check followed later in the same command by `||` no longer counts as passing: `pnpm test && echo ok || true` exits 0 when the tests fail, because the `||` rescues every command before it. Only an `||` directly after the check was caught before.
+- `canny status` no longer prints control characters from a `require` pattern. The field takes effect without `canny trust`, so a cloned repository or the agent could put an escape sequence in it that moved the cursor over earlier status lines or, on terminals that honor OSC 52, wrote to the clipboard. The list of checks still needed is cleaned the way the hook already cleans it for the agent.
 
 ## [0.3.0] - 2026-09-23
 
