@@ -47,7 +47,8 @@ jobs:
         run: |
           grep -qF "## [${TAG#v}] - " CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for ${TAG#v}"; exit 1; }
           grep -qF -- "--branch $TAG " README.md || { echo "::error::the README install does not check out $TAG"; exit 1; }
-          stale=$(grep -oE -- '(--branch|checkout --detach) v[0-9]+\.[0-9]+\.[0-9]+' README.md | grep -vF -- " $TAG" || true)
+          # Whole pins compared, so releasing v0.4.1 still catches a leftover v0.4.10.
+          stale=$(grep -oE -- '(--branch|checkout --detach) v[0-9]+\.[0-9]+\.[0-9]+' README.md | grep -vFx -e "--branch $TAG" -e "checkout --detach $TAG" || true)
           [ -z "$stale" ] || { echo "::error::README.md still pins another tag: $stale"; exit 1; }
           grep -qF "releases/tag/$TAG" README.md || { echo "::error::README.md does not link to the $TAG release"; exit 1; }
       - if: steps.version.outputs.tag
@@ -85,5 +86,9 @@ jobs:
           previous=$(git describe --tags --abbrev=0 --exclude "$TAG" 2>/dev/null || true)
           if [ -n "$previous" ]; then
             printf '\n**Full changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$previous" "$TAG" >> notes.md
+          fi
+          # `--target` does not move a tag that exists, so a tag on another commit would release that commit.
+          if tagged=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}"); then
+            [ "$tagged" = "$GITHUB_SHA" ] || { echo "::error::$TAG already points to $tagged, not $GITHUB_SHA"; exit 1; }
           fi
           gh release create "$TAG" --target "$GITHUB_SHA" --latest --title "$TAG" --notes-file notes.md
