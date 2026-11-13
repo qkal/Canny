@@ -2,6 +2,7 @@
 
 A supervision layer for AI coding agents. It hooks into Claude Code and Codex CLI, keeps a ledger of what the agent actually did, and will not let it finish on a claim.
 
+[![release](https://img.shields.io/github/v/release/qkal/canny)](https://github.com/qkal/canny/releases/latest)
 [![ci](https://github.com/qkal/canny/actions/workflows/ci.yml/badge.svg)](https://github.com/qkal/canny/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/qkal/canny)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A5%2022-339933?logo=node.js&logoColor=white)](#install-by-pasting-a-prompt)
@@ -9,6 +10,8 @@ A supervision layer for AI coding agents. It hooks into Claude Code and Codex CL
 [![runtime dependencies](https://img.shields.io/badge/runtime%20dependencies-0-success)](package.json)
 [![judge](https://img.shields.io/badge/judge-Jev%20by%20TypeSafe%2C%20optional-0ea5e9)](https://typesafe.ai)
 [![last commit](https://img.shields.io/github/last-commit/qkal/canny)](https://github.com/qkal/canny/commits/main)
+
+**Latest release: [v0.4.0](https://github.com/qkal/canny/releases/tag/v0.4.0).** If you run 0.3.0 or earlier, [update](#update-an-existing-install): in those versions a failing check followed later in the same command by `||` (`pnpm test && echo ok || true`) opened the done-gate, edits that skipped or deleted tests on Windows went through unasked, and the ledger recorded files a shell command never wrote, holding the done-gate on them.
 
 **[Install](#install-by-pasting-a-prompt)** · [What it looks like](#what-a-guarded-session-looks-like) · [What blocks](#what-blocks-and-what-only-nags) · [Configuration](#configuration) · [Commands](#commands) · [Does it help?](#does-it-help) · [Contributing](#contributing)
 
@@ -46,7 +49,7 @@ The same session always produces the same verdict, and `canny replay` proves it 
 
 ## Install by pasting a prompt
 
-Canny is not on npm. Your agent installs it from this repository: a clone and one command. The compiled CLI is committed, so there is nothing to build. You need git and Node 22 or newer.
+Canny is not on npm. Your agent installs it from this repository: a clone of the latest release, [v0.4.0](https://github.com/qkal/canny/releases/tag/v0.4.0), and one command. The compiled CLI is committed, so there is nothing to build. You need git and Node 22 or newer.
 
 Paste this into Claude Code or Codex, inside the project you want guarded:
 
@@ -54,19 +57,13 @@ Paste this into Claude Code or Codex, inside the project you want guarded:
 Install Canny (https://github.com/qkal/canny), a supervisor that checks your work through this agent's hooks, and hook it into this project.
 
 1. Confirm `node --version` is 22 or newer. If not, stop and tell me.
-2. If ~/.canny/src exists, run `git -C ~/.canny/src pull --ff-only`. Otherwise run `git clone https://github.com/qkal/canny.git ~/.canny/src`. There is nothing to build or install.
+2. If ~/.canny/src exists, run `git -C ~/.canny/src fetch --tags origin`, then `git -C ~/.canny/src checkout --detach v0.4.0`; if either git command fails, stop and tell me what it printed. Otherwise run `git clone --branch v0.4.0 https://github.com/qkal/canny.git ~/.canny/src`. There is nothing to build or install.
 3. From the root of this project, run `node ~/.canny/src/dist/cli.js init` and show me the hook entries it wrote.
 4. Run `echo canny-check`, then `node ~/.canny/src/dist/cli.js status`. If status lists a session with at least one event, the hooks are live. If it says no sessions were recorded: on Claude Code ask me to restart you; on Codex remind me to run /hooks to trust the new hooks.
 5. Change nothing else. Tell me what you did in five lines or fewer.
 ```
 
 `init` writes hook entries for the agents it finds installed, so the same prompt works in either agent. To choose explicitly, change step 3 to `init --claude` or `init --codex`. To guard every project instead of this one, use `init --global`, which writes to `~/.claude/settings.json` and `~/.codex/hooks.json`.
-
-To update later:
-
-```text
-Update Canny: run `git -C ~/.canny/src pull --ff-only` and tell me what changed, from its CHANGELOG.md, since the previous commit.
-```
 
 To remove it from a project:
 
@@ -77,12 +74,25 @@ Remove Canny from this project: from the project root run `node ~/.canny/src/dis
 By hand, the same thing is two commands, and a third if you want a `canny` on your PATH:
 
 ```bash
-git clone https://github.com/qkal/canny.git ~/.canny/src
+git clone --branch v0.4.0 https://github.com/qkal/canny.git ~/.canny/src
 node ~/.canny/src/dist/cli.js init
 ln -s ~/.canny/src/dist/cli.js ~/.local/bin/canny
 ```
 
 With `canny` on your PATH, `init` writes `canny hook` into the hook config instead of the absolute path.
+
+### Update an existing install
+
+Everyone on 0.3.0 or earlier should move to [v0.4.0](https://github.com/qkal/canny/releases/tag/v0.4.0); the [changelog](CHANGELOG.md#040---2026-11-13) lists what it fixes. Paste this into Claude Code or Codex:
+
+```text
+Update Canny to v0.4.0 (https://github.com/qkal/canny/releases/tag/v0.4.0).
+
+1. Run `git -C ~/.canny/src fetch --tags origin`, then `git -C ~/.canny/src describe --tags --always HEAD`, and remember the result as the old version.
+2. Run `git -C ~/.canny/src checkout --detach v0.4.0`. If git refuses or fails, stop and tell me what it printed.
+3. If the old version is older than v0.3.0, tell me to run `node ~/.canny/src/dist/cli.js init` again in each project Canny guards, or `init --global` if I installed it globally. That adds the SessionStart hook.
+4. Tell me what changed between the old version and v0.4.0, from ~/.canny/src/CHANGELOG.md, in five lines or fewer.
+```
 
 ## What a guarded session looks like
 

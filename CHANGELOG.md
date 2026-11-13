@@ -4,9 +4,13 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-13
+
+Everything since 0.3.0. Update if you run 0.3.0 or earlier. In those versions a check followed later by `||` counted as passing, so a failing test run could open the done-gate. On Windows, edits that skipped or deleted tests went through unasked. Files a shell command never wrote, and files outside the project, could hold the done-gate with nothing to run. The hook entries `canny init` writes have not changed since 0.3.0, so updating `~/.canny/src` is enough. Coming from 0.2.x, run `canny init` again in each guarded project to add the `SessionStart` hook.
+
 ### Added
 
-- `require` in `.canny.json`: regexes that each have to match a passing check after the last code edit before a Stop is allowed. Until now any one check opened the done-gate, so `eslint` passing after a logic change let "done" through with the tests never run. The block reason, the `SessionStart` brief, and `canny status` name the checks still needed. The field only asks for more, so like `strict` it takes effect without `canny trust`; a pattern can only be satisfied by a command that already counts as a check.
+- `require` in `.canny.json`: regexes that each have to match a passing check after the last code edit before a Stop is allowed. Until now any one check opened the done-gate, so `eslint` passing after a logic change let "done" through with the tests never run. The block reason, the `SessionStart` brief, and `canny status` name the checks still needed, with control characters removed, since a cloned repository can write the patterns. The field only asks for more, so like `strict` it takes effect without `canny trust`; a pattern can only be satisfied by a command that already counts as a check.
 
 ### Fixed
 
@@ -16,7 +20,9 @@ All notable changes to Canny are recorded here. The format follows [Keep a Chang
 - Paths with Windows separators are read like any other. The patterns for test files, ignored directories, and env files only accepted `/`, while Claude Code on Windows sends `C:\…` and `path.relative` answers with `\` there. So adding `test.skip(` to `tests\helper.js` or deleting it went through without a question, an edit under `docs\` or `node_modules\` blocked the Stop, and a key written to a git-ignored `config\.env` was denied. The ledger now records paths with `/` on every system, so an `ignore` pattern such as `^generated/` matches on Windows too.
 - On Windows a Git Bash path (`/c/Users/…`) is read as `C:\Users\…`. It used to resolve to `C:\c\Users\…`, so the test-removal check read a file that does not exist and let the write through.
 - A check followed later in the same command by `||` no longer counts as passing: `pnpm test && echo ok || true` exits 0 when the tests fail, because the `||` rescues every command before it. Only an `||` directly after the check was caught before.
-- `canny status` no longer prints control characters from a `require` pattern. The field takes effect without `canny trust`, so a cloned repository or the agent could put an escape sequence in it that moved the cursor over earlier status lines or, on terminals that honor OSC 52, wrote to the clipboard. The list of checks still needed is cleaned the way the hook already cleans it for the agent.
+- The ledger no longer records files a shell command never writes. Commands inside quotes (`ssh host "cp a $B/x"`, `grep -E "cp |mv " f`) were read as shell, a variable such as `$DST/a.ts` was recorded as a file, a substitution such as `bak-$(date +%Y%m%d)` was split into two names, and a leading `cd` was ignored, so relative paths landed in the wrong directory. Each of these could hold the done-gate on a file nothing had changed.
+- `python3 -m unittest` counts as a check, like `python -m unittest`.
+- `bench/run.mjs` on Windows runs each task's `npm test` through a shell. `npm` is `npm.cmd` there and cannot be started directly, so every task read as failed whatever the agent did.
 
 ## [0.3.0] - 2026-09-23
 
@@ -102,7 +108,8 @@ First release.
 - Claude Code and Codex CLI support from one codebase: shell writes by redirection are counted as edits, Claude Code's `PostToolUseFailure` carries the exit code, and Codex's exit code is read from the session transcript.
 - `canny init` writes hook config for a project or, with `--global`, for the home directory.
 
-[Unreleased]: https://github.com/qkal/canny/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/qkal/canny/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/qkal/canny/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/qkal/canny/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/qkal/canny/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qkal/canny/releases/tag/v0.1.0
